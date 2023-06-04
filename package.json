@@ -1,6 +1,5 @@
 {
   "name": "@vscode-use/createwebview",
-  "type": "module",
   "version": "0.0.2",
   "packageManager": "pnpm@7.2.1",
   "description": "",
@@ -18,7 +17,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.cjs",
+      "require": "./dist/index.js",
       "import": "./dist/index.mjs"
     }
   },
