@@ -1,5 +1,5 @@
 {
-  "name": "vscode-createwebview",
+  "name": "@vscode-use/createwebview",
   "type": "module",
   "version": "0.0.0",
   "packageManager": "pnpm@7.2.1",
@@ -33,12 +33,12 @@
       ]
     }
   },
-  "bin": {
-    "run": "./cli.mjs"
-  },
   "files": [
     "dist"
   ],
+  "engines": {
+    "vscode": "^1.77.0"
+  },
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "postinstall": "simple-git-hooks",
@@ -59,6 +59,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "^0.25.1",
     "@types/node": "^18.0.0",
+    "@types/vscode": "^1.77.0",
     "bumpp": "^8.2.1",
     "eslint": "^8.18.0",
     "esno": "^0.16.3",
@@ -70,7 +71,8 @@
     "tsup": "^6.5.0",
     "tsx": "^3.12.1",
     "typescript": "^4.7.4",
-    "vitest": "^0.15.1"
+    "vitest": "^0.15.1",
+    "vsce": "^2.15.0"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm exec lint-staged --concurrent false",
