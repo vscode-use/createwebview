@@ -15,7 +15,7 @@ export class CreateWebview {
     this._styles = _styles
   }
 
-  create(html: string, callback: (data: any) => void) {
+  public create(html: string, callback: (data: any) => void) {
     const webviewView = vscode.window.createWebviewPanel(
       this._title, // 视图的声明方式
       this._title, // 选项卡标题
@@ -33,20 +33,25 @@ export class CreateWebview {
     webviewView.webview.onDidReceiveMessage(callback)
   }
 
-  isActive() {
+  public isActive() {
     if (this.webviewView)
       return this.webviewView.active
     return false
   }
 
-  destory() {
+  public destory() {
     if (this.webviewView)
       this.webviewView.dispose()
   }
 
-  deferScript(scripts: string | string[]) {
+  public deferScript(scripts: string | string[]) {
     this._deferScript
       = typeof scripts === 'string' ? scripts : scripts.join('\n')
+  }
+
+  public postMessage(data: any) {
+    if (this.webviewView)
+      this.webviewView.postMessage(data)
   }
 
   private _getHtmlForWebview(webview: vscode.Webview, html: string) {

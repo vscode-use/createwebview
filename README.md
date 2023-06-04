@@ -27,9 +27,10 @@ function activate(context: vscode.ExtensionContext) {
 ## Api
 
 - provider.isActive 检测当前 webview 是否已经打开
-- create 创建 webview
-- destory 销毁关闭 webview
-- deferScript 默认 js 是加载在 body 的后面,deferScript 会在默认的 js 之后注入，并且为了解决一些默认数据渲染的问题，支持'<script>xxx</script>'
+- provider.create 创建 webview
+- provider.destory 销毁关闭 webview
+- provider.deferScript 默认 js 是加载在 body 的后面,deferScript 会在默认的 js 之后注入，并且为了解决一些默认数据渲染的问题，支持'<script>xxx</script>'
+- provider.postMessage 向js层发送消息
 
 ## :coffee:
 

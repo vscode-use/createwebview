@@ -50,9 +50,6 @@
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "lazy-js-utils": "^0.0.24"
-  },
   "devDependencies": {
     "@antfu/eslint-config": "^0.25.1",
     "@types/node": "^18.0.0",
