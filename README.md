@@ -32,9 +32,6 @@ function activate(context: vscode.ExtensionContext) {
 - provider.deferScript 默认 js 是加载在 body 的后面,deferScript 会在默认的 js 之后注入，并且为了解决一些默认数据渲染的问题，支持'<script>xxx</script>'
 - provider.postMessage 向js层发送消息
 
-## :coffee:
-
-[buy me a cup of coffee](https://github.com/Simon-He95/sponsor)
 
 ## License
 
