@@ -6,9 +6,9 @@ export class CreateWebview {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _title: string,
-    private readonly _scripts: string | string[] | { enforce: 'pre' | 'post'; src: string }[],
+    private readonly _scripts: string | (string | { enforce: 'pre' | 'post'; src: string })[],
     private readonly _styles: string | string[],
-    private readonly onMessage: (data: any) => void,
+    private readonly onMessage: (data: any) => void = () => {},
   ) {
     this._extensionUri = _extensionUri
     this._title = _title
@@ -17,7 +17,7 @@ export class CreateWebview {
     this.onMessage = onMessage
   }
 
-  public create(html: string, callback: (data: any) => void) {
+  public create(html: string, callback: (data: any) => void = () => {}) {
     const webviewView = vscode.window.createWebviewPanel(
       this._title, // 视图的声明方式
       this._title, // 选项卡标题
