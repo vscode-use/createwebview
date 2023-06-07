@@ -6,7 +6,7 @@ export class CreateWebview {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _title: string,
-    private readonly _scripts: string | string[],
+    private readonly _scripts: string | string[] | { enforce: 'pre' | 'post'; src: string }[],
     private readonly _styles: string | string[],
     private readonly onMessage: (data: any) => void,
   ) {
@@ -73,20 +73,32 @@ export class CreateWebview {
           })
           .join('\n')
       : ''
-    const scripts = (
-      Array.isArray(this._scripts) ? this._scripts : [this._scripts]
-    )
-      .map((script) => {
-        const scriptUri = outerUriReg.test(script)
-          ? script
-          : webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'media', script),
-          )
-        return script.startsWith('<script')
-          ? script
-          : `<script src="${scriptUri}"></script>`
-      })
-      .join('\n')
+    const preScripts: string[] = []
+    const postScripts: string[] = []
+    const scripts = Array.isArray(this._scripts)
+      ? this._scripts
+      : [this._scripts]
+
+    scripts.forEach((script) => {
+      let isPre = false
+      if (typeof script !== 'string') {
+        isPre = script.enforce === 'pre'
+        script = script.src
+      }
+      const scriptUri = outerUriReg.test(script)
+        ? script
+        : webview.asWebviewUri(
+          vscode.Uri.joinPath(this._extensionUri, 'media', script),
+        )
+      const _script = script.startsWith('<script')
+        ? script
+        : `<script src="${scriptUri}"></script>`
+
+      if (isPre)
+        preScripts.push(_script)
+      else
+        postScripts.push(_script)
+    })
 
     return `<!DOCTYPE html>
 			<html lang="en">
@@ -94,12 +106,13 @@ export class CreateWebview {
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           ${styles}
+          ${preScripts.length ? preScripts.join('\n') : ''}
           <title>${this._title}</title>
         </head>
         <body>
           ${html}
         </body>
-        ${scripts}
+        ${postScripts.join('\n')}
         ${this._deferScript}
 			</html>`
   }
