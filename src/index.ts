@@ -8,11 +8,13 @@ export class CreateWebview {
     private readonly _title: string,
     private readonly _scripts: string | string[],
     private readonly _styles: string | string[],
+    private readonly onMessage: (data: any) => void,
   ) {
     this._extensionUri = _extensionUri
     this._title = _title
     this._scripts = _scripts
     this._styles = _styles
+    this.onMessage = onMessage
   }
 
   public create(html: string, callback: (data: any) => void) {
@@ -30,7 +32,10 @@ export class CreateWebview {
       webviewView.webview,
       html,
     )
-    webviewView.webview.onDidReceiveMessage(callback)
+    webviewView.webview.onDidReceiveMessage((data: any) => {
+      callback(data)
+      this.onMessage(data)
+    })
   }
 
   public isActive() {
