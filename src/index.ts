@@ -39,8 +39,14 @@ export class CreateWebview {
   }
 
   public isActive() {
-    if (this.webviewView)
-      return this.webviewView.active
+    try {
+      if (this.webviewView)
+        return this.webviewView.active
+    }
+    catch (error) {
+
+    }
+
     return false
   }
 
