@@ -1,14 +1,17 @@
+import fsp from 'node:fs/promises'
 import * as vscode from 'vscode'
 
 export class CreateWebview {
   private webviewView: any
   private _deferScript = ''
+  private props: Record<string, any> = {}
+  private scriptsPromises: Promise<string>[] = []
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _title: string,
     private readonly _scripts: string | (string | { enforce: 'pre' | 'post'; src: string })[],
     private readonly _styles: string | string[],
-    private readonly onMessage: (data: any) => void = () => {},
+    private readonly onMessage: (data: any) => void = () => { },
   ) {
     this._extensionUri = _extensionUri
     this._title = _title
@@ -17,7 +20,11 @@ export class CreateWebview {
     this.onMessage = onMessage
   }
 
-  public create(html: string, callback: (data: any) => void = () => {}) {
+  public setProps(props: Record<string, any>) {
+    this.props = { ...this.props, ...props }
+  }
+
+  public async create(html: string, callback: (data: any) => void = () => { }) {
     const webviewView = vscode.window.createWebviewPanel(
       this._title, // 视图的声明方式
       this._title, // 选项卡标题
@@ -28,7 +35,7 @@ export class CreateWebview {
       },
     )
     this.webviewView = webviewView
-    webviewView.webview.html = this._getHtmlForWebview(
+    webviewView.webview.html = await this._getHtmlForWebview(
       webviewView.webview,
       html,
     )
@@ -60,12 +67,24 @@ export class CreateWebview {
       = typeof scripts === 'string' ? scripts : scripts.join('\n')
   }
 
+  public deferScriptUri(scriptUri: string | string[]) {
+    try {
+      const uris = typeof scriptUri === 'string' ? [scriptUri] : scriptUri
+      this.scriptsPromises.push(...uris.map(uri => fsp.readFile(
+        `${this._extensionUri.path}/media/${uri}`
+        , 'utf-8')))
+    }
+    catch (error: any) {
+      throw new Error(error.message)
+    }
+  }
+
   public postMessage(data: any) {
     if (this.webviewView)
       this.webviewView.postMessage(data)
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview, html: string) {
+  private async _getHtmlForWebview(webview: vscode.Webview, html: string) {
     const outerUriReg = /^http[s]:\/\//
     const styles = this._styles
       ? (Array.isArray(this._styles) ? this._styles : [this._styles])
@@ -105,6 +124,9 @@ export class CreateWebview {
       else
         postScripts.push(_script)
     })
+    const scriptsUri = await Promise.all(this.scriptsPromises).then(scripts =>
+      scripts.map(script => `<script>${script.replace('webviewThis', JSON.stringify(this.props))}</script>`),
+    )
 
     return `<!DOCTYPE html>
 			<html lang="en">
@@ -120,6 +142,8 @@ export class CreateWebview {
         </body>
         ${postScripts.join('\n')}
         ${this._deferScript}
+        ${scriptsUri.join('\n')}
 			</html>`
   }
 }
+

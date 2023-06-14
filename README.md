@@ -32,6 +32,23 @@ function activate(context: vscode.ExtensionContext) {
 - provider.deferScript 默认 js 是加载在 body 的后面,deferScript 会在默认的 js 之后注入，并且为了解决一些默认数据渲染的问题，支持'<script>xxx</script>'
 - provider.postMessage 向js层发送消息
 
+## Feature
+之前脚本使用字符串的方式插入体验不好,现在暴露了deferScriptUri的方式传入media下的.ts或者.js路径，就可以写js了，传惨需要提前通过setProps的方式，然后js中可以通过webviewThis获取到参数, webviewThis会在最终render被替换成setProps的参数
+
+```code
+const vscode = acquireVsCodeApi()
+const { name, age } = webviewThis
+const App = {
+  data() {
+    return {
+      name,
+      age,
+    }
+  },
+}
+new Vue(App).$mount('#app')
+
+```
 
 ## License
 
