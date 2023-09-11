@@ -1,23 +1,33 @@
 import fsp from 'node:fs/promises'
 import * as vscode from 'vscode'
 
+export interface Options {
+  title?: string
+  scripts?: string | (string | { enforce: 'pre' | 'post'; src: string })[]
+  styles?: string | string[]
+  onMessage?: (data: any) => void
+  viewColumn?: vscode.ViewColumn
+}
 export class CreateWebview {
   private webviewView: any
   private _deferScript = ''
   private props: Record<string, any> = {}
   private scriptsPromises: Promise<string>[] = []
+  private viewColumn: vscode.ViewColumn
+  private _title: string
+  private _scripts: string | (string | { enforce: 'pre' | 'post'; src: string })[]
+  private _styles: string | string[]
+  private onMessage?: (data: any) => void
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    private readonly _title: string,
-    private readonly _scripts: string | (string | { enforce: 'pre' | 'post'; src: string })[],
-    private readonly _styles: string | string[],
-    private readonly onMessage: (data: any) => void = () => { },
+    options: Options,
   ) {
     this._extensionUri = _extensionUri
-    this._title = _title
-    this._scripts = _scripts
-    this._styles = _styles
-    this.onMessage = onMessage
+    this._title = options.title || 'webview'
+    this._scripts = options.scripts || ''
+    this._styles = options.styles || ''
+    this.viewColumn = options.viewColumn || vscode.ViewColumn.One
+    this.onMessage = options.onMessage
   }
 
   public setProps(props: Record<string, any>) {
@@ -28,7 +38,7 @@ export class CreateWebview {
     const webviewView = vscode.window.createWebviewPanel(
       this._title, // 视图的声明方式
       this._title, // 选项卡标题
-      vscode.ViewColumn.One, // 在编辑器中显示的视图位置
+      this.viewColumn, // 在编辑器中显示的视图位置
       {
         enableScripts: true, // 启用JS,否则内容将被视为静态HTML
         localResourceRoots: [this._extensionUri],
@@ -41,7 +51,7 @@ export class CreateWebview {
     )
     webviewView.webview.onDidReceiveMessage((data: any) => {
       callback(data)
-      this.onMessage(data)
+      this.onMessage && this.onMessage(data)
     })
   }
 
