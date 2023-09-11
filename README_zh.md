@@ -5,6 +5,11 @@
 
 > WIP: 这个库是为了快速在 vscode 插件中使用 webview 打开新 tab 页，让使用上更加简单
 
+### Install
+```
+npm i @vscode-use/createwebview
+```
+
 ## Usage
 
 ```code
