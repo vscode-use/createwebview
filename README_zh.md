@@ -14,11 +14,14 @@ npm i @vscode-use/createwebview
 
 ```code
 function activate(context: vscode.ExtensionContext) {
- const provider = new CreateWebview(
+  const provider = new CreateWebview(
     context.extensionUri,
-    'Daily planner', // webview打开的tab页标题
-    ['https://unpkg.com/vue@2/dist/vue.js', 'https://unpkg.com/element-ui/lib/index.js'], // js文件引入，本地js需要配置在media目录下
-    ['reset.css', 'https://unpkg.com/element-ui/lib/theme-chalk/index.css', 'main.css']) // css样式引入，本地css需要配置在media目录下
+    {
+      title: 'Daily planner', // webview打开的tab页标题
+      scripts: ['https://unpkg.com/vue@2/dist/vue.js', 'https://unpkg.com/element-ui/lib/index.js'], // js文件引入，本地js需要配置在media目录下
+      styles: ['reset.css', 'https://unpkg.com/element-ui/lib/theme-chalk/index.css', 'main.css']
+    }
+  ) // css样式引入，本地css需要配置在media目录下
 }
 
   const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', () => {

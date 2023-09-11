@@ -19,9 +19,10 @@ function activate(context: vscode.ExtensionContext) {
     {
       title: 'Daily planner', // The title of the tab page opened by webview
       scripts: ['https://unpkg.com/vue@2/dist/vue.js', 'https://unpkg.com/element-ui/lib/index.js'], // The local js file needs to be configured 
-      styles: ['reset.css', 'https://unpkg.com/element-ui/lib/theme-chalk/index.css', 'main.css']) // When the css style is imported, the local css must be configured in the media directory
+      styles: ['reset.css', 'https://unpkg.com/element-ui/lib/theme-chalk/index.css', 'main.css']
     }
-  )
+  ) // When the css style is imported, the local css must be configured in the media directory
+}
   const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', () => {
     provider.create(`
     <div id="app">
