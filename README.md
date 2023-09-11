@@ -5,6 +5,11 @@
 
 > WIP: This library is designed to quickly open a new tab page using webview in the vscode plugin, making it easier to use
 
+## Install
+```
+npm i @vscode-use/createwebview
+```
+
 ## Usage
 
 ```code
