@@ -6,12 +6,12 @@
   "author": "Simon He",
   "license": "MIT",
   "funding": "https://github.com/sponsors/Simon-He95",
-  "homepage": "https://github.com/Simon-He95/vscode-use/createwebview#readme",
+  "homepage": "https://github.com/vscode-use/createwebview#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Simon-He95/vscode-use/createwebview.git"
+    "url": "git+https://github.com/vscode-use/createwebview.git"
   },
-  "bugs": "https://github.com/Simon-He95/vscode-use/createwebview/issues",
+  "bugs": "https://github.com/vscode-use/createwebview/issues",
   "keywords": [],
   "sideEffects": false,
   "exports": {
