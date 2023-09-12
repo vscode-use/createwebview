@@ -3,7 +3,7 @@
 </p>
 <p align="center"> <a href="./README.md">English</a> | 简体中文</p>
 
-> WIP: 这个库是为了快速在 vscode 插件中使用 webview 打开新 tab 页，让使用上更加简单
+1分钟让你打造一个webview的vscode插件
 
 ### Install
 ```
@@ -60,6 +60,10 @@ const App = {
 new Vue(App).$mount('#app')
 
 ```
+
+## Cases
+- [vscode icones](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-icones)
+- [vscode yesicone](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-yesicon)
 
 ## License
 

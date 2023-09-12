@@ -3,7 +3,7 @@
 </p>
 <p align="center"> English | <a href="./README_zh.md">简体中文</a></p>
 
-> WIP: This library is designed to quickly open a new tab page using webview in the vscode plugin, making it easier to use
+Let you create a webview vscode plug-in in 1 minute
 
 ## Install
 ```
@@ -59,6 +59,11 @@ const App = {
 new Vue(App).$mount('#app')
 
 ```
+
+## Cases
+- [vscode icones](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-icones)
+- [vscode yesicone](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-yesicon)
+
 
 ## License
 
