@@ -7,6 +7,7 @@ export interface Options {
   styles?: string | string[]
   onMessage?: (data: any) => void
   viewColumn?: vscode.ViewColumn
+  retainContextWhenHidden?: boolean
 }
 export class CreateWebview {
   private webviewView: any
@@ -17,6 +18,7 @@ export class CreateWebview {
   private _title: string
   private _scripts: string | (string | { enforce: 'pre' | 'post'; src: string })[]
   private _styles: string | string[]
+  private retainContextWhenHidden: boolean
   private onMessage?: (data: any) => void
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -27,6 +29,7 @@ export class CreateWebview {
     this._scripts = options.scripts || ''
     this._styles = options.styles || ''
     this.viewColumn = options.viewColumn || vscode.ViewColumn.One
+    this.retainContextWhenHidden = options.retainContextWhenHidden === undefined ? true : options.retainContextWhenHidden
     this.onMessage = options.onMessage
   }
 
@@ -42,6 +45,7 @@ export class CreateWebview {
       {
         enableScripts: true, // 启用JS,否则内容将被视为静态HTML
         localResourceRoots: [this._extensionUri],
+        retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
     this.webviewView = webviewView
@@ -98,15 +102,15 @@ export class CreateWebview {
     const outerUriReg = /^http[s]:\/\//
     const styles = this._styles
       ? (Array.isArray(this._styles) ? this._styles : [this._styles])
-          .map((style) => {
-            const styleUri = outerUriReg.test(style)
-              ? style
-              : webview.asWebviewUri(
-                vscode.Uri.joinPath(this._extensionUri, 'media', style),
-              )
-            return `<link href="${styleUri}" rel="stylesheet">`
-          })
-          .join('\n')
+        .map((style) => {
+          const styleUri = outerUriReg.test(style)
+            ? style
+            : webview.asWebviewUri(
+              vscode.Uri.joinPath(this._extensionUri, 'media', style),
+            )
+          return `<link href="${styleUri}" rel="stylesheet">`
+        })
+        .join('\n')
       : ''
     const preScripts: string[] = []
     const postScripts: string[] = []
