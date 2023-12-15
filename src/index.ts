@@ -95,22 +95,22 @@ export class CreateWebview {
 
   public postMessage(data: any) {
     if (this.webviewView)
-      this.webviewView.postMessage(data)
+      this.webviewView.webview.postMessage(data)
   }
 
   private async _getHtmlForWebview(webview: vscode.Webview, html: string) {
     const outerUriReg = /^http[s]:\/\//
     const styles = this._styles
       ? (Array.isArray(this._styles) ? this._styles : [this._styles])
-        .map((style) => {
-          const styleUri = outerUriReg.test(style)
-            ? style
-            : webview.asWebviewUri(
-              vscode.Uri.joinPath(this._extensionUri, 'media', style),
-            )
-          return `<link href="${styleUri}" rel="stylesheet">`
-        })
-        .join('\n')
+          .map((style) => {
+            const styleUri = outerUriReg.test(style)
+              ? style
+              : webview.asWebviewUri(
+                vscode.Uri.joinPath(this._extensionUri, 'media', style),
+              )
+            return `<link href="${styleUri}" rel="stylesheet">`
+          })
+          .join('\n')
       : ''
     const preScripts: string[] = []
     const postScripts: string[] = []
