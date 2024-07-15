@@ -10,7 +10,7 @@
 npm i @vscode-use/createwebview
 ```
 
-## Usage
+## Usage1
 
 ```code
 function activate(context: vscode.ExtensionContext) {
@@ -30,6 +30,29 @@ function activate(context: vscode.ExtensionContext) {
       <div>Hello, World</div>
     </div>
     `, (data)=>{
+      // callback 获取js层的postMessage数据
+    })
+  })
+```
+
+## Usage2
+
+```code
+function activate(context: vscode.ExtensionContext) {
+  const provider = new CreateWebview(
+    context.extensionUri,
+    {
+      title: 'Daily planner', // webview打开的tab页标题
+      scripts: [],
+      styles: []
+    }
+  )
+}
+
+  const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', () => {
+    // 基于根目录的相对路径
+    // html 中本地径资源(href="" | src="")需要使用相对路径, 并且放到根目录的 media 文件夹下
+    provider.createWithHTMLUrl('./src/webview/index.html', (data)=>{
       // callback 获取js层的postMessage数据
     })
   })

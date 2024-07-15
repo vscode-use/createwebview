@@ -1,4 +1,5 @@
 import fsp from 'node:fs/promises'
+import path from 'node:path'
 import * as vscode from 'vscode'
 
 export interface Options {
@@ -8,10 +9,13 @@ export interface Options {
   onMessage?: (data: any) => void
   viewColumn?: vscode.ViewColumn
   retainContextWhenHidden?: boolean
+  html?: string
 }
 export class CreateWebview {
   private webviewView: any
   private _deferScript = ''
+  private _extensionUri: vscode.Uri
+  private _extensionPath: string
   private props: Record<string, any> = {}
   private scriptsPromises: Promise<string>[] = []
   private viewColumn: vscode.ViewColumn
@@ -21,10 +25,11 @@ export class CreateWebview {
   private retainContextWhenHidden: boolean
   private onMessage?: (data: any) => void
   constructor(
-    private readonly _extensionUri: vscode.Uri,
+    private readonly _extension: vscode.ExtensionContext,
     options: Options,
   ) {
-    this._extensionUri = _extensionUri
+    this._extensionUri = _extension.extensionUri
+    this._extensionPath = _extension.extensionPath
     this._title = options.title || 'webview'
     this._scripts = options.scripts || ''
     this._styles = options.styles || ''
@@ -53,6 +58,28 @@ export class CreateWebview {
       webviewView.webview,
       html,
     )
+    webviewView.webview.onDidReceiveMessage((data: any) => {
+      callback(data)
+      this.onMessage && this.onMessage(data)
+    })
+  }
+
+  public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
+    const html = await fsp.readFile(path.resolve(this._extensionPath, htmlUrl), 'utf-8')
+    const webviewView = vscode.window.createWebviewPanel(
+      this._title, // 视图的声明方式
+      this._title, // 选项卡标题
+      this.viewColumn, // 在编辑器中显示的视图位置
+      {
+        enableScripts: true, // 启用JS,否则内容将被视为静态HTML
+        localResourceRoots: [this._extensionUri],
+        retainContextWhenHidden: this.retainContextWhenHidden,
+      },
+    )
+    this.webviewView = webviewView
+    webviewView.webview.html = html.replace(/(?:src|href)="([/.][^"]*)"/g, (_, u) => _.replace(u, webviewView.webview.asWebviewUri(vscode.Uri.file(
+      path.join(this._extensionPath, 'media', u),
+    )).toString())).replace(/(<\/head>)/, '<script>\n  const vscode = acquireVsCodeApi();\n  </script>\n  $1')
     webviewView.webview.onDidReceiveMessage((data: any) => {
       callback(data)
       this.onMessage && this.onMessage(data)
@@ -147,9 +174,12 @@ export class CreateWebview {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          ${styles}
-          ${preScripts.length ? preScripts.join('\n') : ''}
           <title>${this._title}</title>
+          ${styles}
+          <script>
+            const vscode = acquireVsCodeApi();
+          </script>
+          ${preScripts.length ? preScripts.join('\n') : ''}
         </head>
         <body>
           ${html}

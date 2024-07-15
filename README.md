@@ -10,7 +10,7 @@ Let you create a webview vscode plug-in in 1 minute
 npm i @vscode-use/createwebview
 ```
 
-## Usage
+## Usage1
 
 ```code
 function activate(context: vscode.ExtensionContext) {
@@ -30,6 +30,29 @@ function activate(context: vscode.ExtensionContext) {
     </div>
     `, (data)=>{
       // callback Get the post message data of the js layer
+    })
+  })
+```
+
+## Usage2
+
+```code
+function activate(context: vscode.ExtensionContext) {
+  const provider = new CreateWebview(
+    context.extensionUri,
+    {
+      title: 'Daily planner', // The title of the tab page opened by webview
+      scripts: [],
+      styles: []
+    }
+  )
+}
+
+  const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', () => {
+    // Relative path based on the root directory
+    // The local path resource (href="" | src="") in html needs to use the relative path and put it under the media folder in the root directory.
+    provider.createWithHTMLUrl('./src/webview/index.html', (data)=>{
+        // callback Get the post message data of the js layer
     })
   })
 ```
