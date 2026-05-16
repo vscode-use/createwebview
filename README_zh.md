@@ -81,6 +81,8 @@ function activate(context: vscode.ExtensionContext) {
 
 传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会作用于 `create(html)` 和 `createWithHTMLUrl(htmlUrl)` 渲染出的最终 HTML，所以内联 `<script>`、内联 `<style>` 和 style attributes 默认会被阻止，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts` 或 `deferScriptUri` 引入，或者通过 `csp` 明确放开。
 
+如果 HTML 文件已经包含 CSP meta 标签，`createWithHTMLUrl` 默认会拒绝渲染。设置 `existingCsp: 'replace'` 可以移除已有标签并注入 createwebview 的运行时 CSP；设置 `existingCsp: 'preserve'` 可以保留已有标签并跳过运行时 CSP 注入。
+
 传入自定义 `csp` 时，请包含 `${nonce}` 以允许运行时内联脚本，并包含 `${webview.cspSource}` 以允许本地 webview 资源：
 
 ```text
@@ -90,7 +92,7 @@ style-src ${webview.cspSource};
 
 `deferScriptUri` 会把 `media` 下浏览器可直接执行的 `.js` 文件作为外部脚本注入。TypeScript 需要先编译成 JavaScript。渲染前先调用 `setProps`，脚本里通过 `window.__WEBVIEW_PROPS__` 读取参数。
 
-运行时代码默认不会把 VS Code API 暴露到 `window`。可信的 webview 脚本可以直接调用 `acquireVsCodeApi()`。如果需要旧的全局 API，可以设置 `exposeVsCodeApi: true` 得到 `window.vscode`，也可以传字符串，例如 `exposeVsCodeApi: 'editorApi'`。
+运行时代码默认不会把 VS Code API 暴露到 `window`。可信的 webview 脚本可以直接调用 `acquireVsCodeApi()`。如果需要旧的全局 API，可以设置 `exposeVsCodeApi: true` 得到 `window.vscode`，也可以传字符串，例如 `exposeVsCodeApi: 'editorApi'`。启用 `exposeVsCodeApi` 后，业务脚本应使用 `window.vscode` 或配置的名称，不要再重复调用 `acquireVsCodeApi()`。
 
 ```ts
 const { name, age } = window.__WEBVIEW_PROPS__

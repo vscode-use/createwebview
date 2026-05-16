@@ -81,6 +81,8 @@ The `scripts` option accepts script paths or URLs only. Use `deferScript` for in
 
 HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
 
+If an HTML file already includes a CSP meta tag, `createWithHTMLUrl` rejects it by default. Set `existingCsp: 'replace'` to remove the existing tag and inject createwebview's runtime CSP, or `existingCsp: 'preserve'` to keep the existing tag and skip runtime CSP injection.
+
 When providing a custom `csp`, include `${nonce}` for runtime inline scripts and `${webview.cspSource}` for local webview resources:
 
 ```text
@@ -90,7 +92,7 @@ style-src ${webview.cspSource};
 
 `deferScriptUri` injects a browser-ready `.js` file from `media` as an external script. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
 
-The runtime does not expose the VS Code API on `window` by default. Trusted webview scripts can call `acquireVsCodeApi()` directly. If you need the legacy global API, set `exposeVsCodeApi: true` for `window.vscode`, or pass a string such as `exposeVsCodeApi: 'editorApi'`.
+The runtime does not expose the VS Code API on `window` by default. Trusted webview scripts can call `acquireVsCodeApi()` directly. If you need the legacy global API, set `exposeVsCodeApi: true` for `window.vscode`, or pass a string such as `exposeVsCodeApi: 'editorApi'`. When `exposeVsCodeApi` is enabled, business scripts should use `window.vscode` or the configured name instead of calling `acquireVsCodeApi()` again.
 
 ```ts
 const { name, age } = window.__WEBVIEW_PROPS__

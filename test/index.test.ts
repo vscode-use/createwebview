@@ -203,6 +203,21 @@ describe('CreateWebview', () => {
     await expect(renderHtml(deferredProvider)).rejects.toThrow('Unsupported deferred script URI scheme: vscode:extension/app.js')
   })
 
+  it('rejects protocol-relative configured resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const scriptProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['//cdn.example.com/app.js'],
+    })
+    const styleProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      styles: ['//cdn.example.com/theme.css'],
+    })
+
+    await expect(renderHtml(scriptProvider)).rejects.toThrow('Protocol-relative script URI is not supported')
+    await expect(renderHtml(styleProvider)).rejects.toThrow('Protocol-relative style URI is not supported')
+  })
+
   it('rejects raw script tags in scripts options', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
@@ -917,6 +932,45 @@ describe('CreateWebview', () => {
       await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
     }
     expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
+  })
+
+  it('replaces existing html url CSP meta when configured', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><meta http-equiv="Content-Security-Policy" content="script-src https://old.example"><script src="./app.js"></script></head><body></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      existingCsp: 'replace',
+    })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).not.toContain('https://old.example')
+    expect(panel.webview.html.match(/http-equiv="Content-Security-Policy"/g)).toHaveLength(1)
+    expect(panel.webview.html).toContain('webview:/extension/media/app.js')
+  })
+
+  it('preserves existing html url CSP meta when configured', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><meta http-equiv="Content-Security-Policy" content="script-src https://existing.example"><script src="./app.js"></script></head><body></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      existingCsp: 'preserve',
+    })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toContain('script-src https://existing.example')
+    expect(panel.webview.html.match(/http-equiv="Content-Security-Policy"/g)).toHaveLength(1)
+    expect(panel.webview.html).not.toContain('base-uri')
+    expect(panel.webview.html).toContain('webview:/extension/media/app.js')
   })
 
   it('injects html url CSP before existing head resources', async () => {

@@ -21,6 +21,7 @@ export interface Options {
   allowedWorkerSources?: string[]
   allowedPrefetchSources?: string[]
   csp?: string
+  existingCsp?: 'error' | 'replace' | 'preserve'
   html?: string
   exposeVsCodeApi?: boolean | string
 }
@@ -50,6 +51,7 @@ export class CreateWebview {
   private allowedWorkerSources: string[]
   private allowedPrefetchSources: string[]
   private csp?: string
+  private existingCsp: 'error' | 'replace' | 'preserve'
   private onMessage?: (data: any) => void
   private exposeVsCodeApi?: string
   constructor(
@@ -80,6 +82,7 @@ export class CreateWebview {
     this.allowedWorkerSources = options.allowedWorkerSources || []
     this.allowedPrefetchSources = options.allowedPrefetchSources || []
     this.csp = options.csp
+    this.existingCsp = options.existingCsp || 'error'
     if (!this.csp) {
       this._assertValidCspSourceTokens('allowedScriptSources', this.allowedScriptSources)
       this._assertValidCspSourceTokens('allowedStyleSources', this.allowedStyleSources)
@@ -159,9 +162,14 @@ export class CreateWebview {
     if (requestId !== this.createRequestId)
       return
 
-    const html = Buffer.from(bytes).toString('utf8')
-    if (this._hasCspMeta(html))
-      throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+    let html = Buffer.from(bytes).toString('utf8')
+    const hasExistingCsp = this._hasCspMeta(html)
+    if (hasExistingCsp) {
+      if (this.existingCsp === 'error')
+        throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+      if (this.existingCsp === 'replace')
+        html = this._removeCspMeta(html)
+    }
 
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
@@ -175,7 +183,9 @@ export class CreateWebview {
     )
 
     try {
-      const content = await this._getWebviewContent(webviewView.webview)
+      const content = await this._getWebviewContent(webviewView.webview, {
+        includeCsp: !(hasExistingCsp && this.existingCsp === 'preserve'),
+      })
       if (requestId !== this.createRequestId) {
         webviewView.dispose()
         return
@@ -262,7 +272,8 @@ export class CreateWebview {
 			</html>`
   }
 
-  private async _getWebviewContent(webview: vscode.Webview) {
+  private async _getWebviewContent(webview: vscode.Webview, options: { includeCsp?: boolean } = {}) {
+    const includeCsp = options.includeCsp ?? true
     const nonce = this._getNonce()
     const styles = this._styles
       .filter(Boolean)
@@ -280,7 +291,7 @@ export class CreateWebview {
 
     if (!this.enableScripts) {
       return {
-        head: `${this._getCspMeta(webview, nonce)}
+        head: `${includeCsp ? this._getCspMeta(webview, nonce) : ''}
           ${styles}`,
         bodyEnd: '',
       }
@@ -333,7 +344,7 @@ export class CreateWebview {
     }
 
     return {
-      head: `${this._getCspMeta(webview, nonce)}
+      head: `${includeCsp ? this._getCspMeta(webview, nonce) : ''}
           ${styles}
           ${vscodeApiScript}
           <script nonce="${nonce}">
@@ -459,7 +470,15 @@ export class CreateWebview {
   }
 
   private _hasCspMeta(html: string) {
-    return /<meta\b[^>]*\bhttp-equiv\s*=\s*(?:"\s*content-security-policy\s*"|'\s*content-security-policy\s*'|content-security-policy\b)/i.test(html)
+    return html.match(/<meta\b[^>]*>/gi)?.some(tag => this._isCspMeta(tag)) ?? false
+  }
+
+  private _removeCspMeta(html: string) {
+    return html.replace(/<meta\b[^>]*>/gi, tag => this._isCspMeta(tag) ? '' : tag)
+  }
+
+  private _isCspMeta(tag: string) {
+    return /\bhttp-equiv\s*=\s*(?:"\s*content-security-policy\s*"|'\s*content-security-policy\s*'|content-security-policy\b)/i.test(tag)
   }
 
   private _rewriteHtmlResources(html: string, webview: vscode.Webview) {
@@ -509,6 +528,9 @@ export class CreateWebview {
   }
 
   private _assertSupportedResourceUri(uri: string, kind: string) {
+    if (/^\/\//.test(uri))
+      throw new Error(`Protocol-relative ${kind} URI is not supported. Use an explicit https:// URL: ${uri}`)
+
     if (/^[a-z][a-z0-9+.-]*:/i.test(uri) && !this._isExternalUri(uri))
       throw new Error(`Unsupported ${kind} URI scheme: ${uri}`)
   }
