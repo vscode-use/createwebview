@@ -77,7 +77,7 @@ Local scripts and styles are resolved from the extension `media` directory. Webv
 
 The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
 
-`createWithHTMLUrl` rewrites local `src` and `href` resources only when the attribute uses double quotes and the path starts with `./` or a single `/`, such as `src="./app.js"`. Protocol-relative URLs like `src="//cdn.example.com/app.js"`, bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
+`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons, only when the attribute uses double quotes and the path starts with `./` or a single `/`, such as `src="./app.js"`. Normal links such as `a href`, `base href`, and canonical links are not rewritten. Protocol-relative URLs like `src="//cdn.example.com/app.js"`, bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
 
 HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP blocks inline `<script>`, inline `<style>`, and style attributes in HTML files unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
 

@@ -77,7 +77,7 @@ function activate(context: vscode.ExtensionContext) {
 
 `scripts` 选项只接收脚本路径或 URL。内联 JavaScript 请使用 `deferScript`。
 
-`createWithHTMLUrl` 只会重写使用双引号、且路径以 `./` 或单个 `/` 开头的本地 `src` 和 `href` 资源，例如 `src="./app.js"`。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL、`src="app.js"` 这样的裸文件名、单引号属性、`srcset` 和 CSS `url(...)` 不会被重写。
+`createWithHTMLUrl` 只会重写 `script`、`img`、`source`、`video`、`audio`、`track`、`iframe` 上的本地 `src`，以及 stylesheet、icon 等资源型 `link href`；这些属性必须使用双引号，且路径以 `./` 或单个 `/` 开头，例如 `src="./app.js"`。`a href`、`base href`、canonical link 等普通链接不会被重写。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL、`src="app.js"` 这样的裸文件名、单引号属性、`srcset` 和 CSS `url(...)` 不会被重写。
 
 传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会阻止 HTML 文件里的内联 `<script>`、内联 `<style>` 和 style attributes，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts` 或 `deferScriptUri` 引入，或者通过 `csp` 明确放开。
 

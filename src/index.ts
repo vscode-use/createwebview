@@ -96,14 +96,17 @@ export class CreateWebview {
       },
     )
 
+    let renderedHtml: string
     try {
-      webviewView.webview.html = await this._getHtmlForWebview(
+      renderedHtml = await this._getHtmlForWebview(
         webviewView.webview,
         html,
       )
     }
     catch (error) {
       webviewView.dispose()
+      if (requestId !== this.createRequestId)
+        return
       throw error
     }
 
@@ -112,6 +115,7 @@ export class CreateWebview {
       return
     }
 
+    webviewView.webview.html = renderedHtml
     this.webviewView?.dispose()
     this.webviewView = webviewView
     webviewView.onDidDispose(() => {
@@ -126,7 +130,15 @@ export class CreateWebview {
 
   public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
     const requestId = ++this.createRequestId
-    const bytes = await vscode.workspace.fs.readFile(this._getExtensionFileUri(htmlUrl))
+    let bytes: Uint8Array
+    try {
+      bytes = await vscode.workspace.fs.readFile(this._getExtensionFileUri(htmlUrl))
+    }
+    catch (error) {
+      if (requestId !== this.createRequestId)
+        return
+      throw error
+    }
     if (requestId !== this.createRequestId)
       return
 
@@ -147,17 +159,21 @@ export class CreateWebview {
 
     try {
       const content = await this._getWebviewContent(webviewView.webview)
+      if (requestId !== this.createRequestId) {
+        webviewView.dispose()
+        return
+      }
+
       const renderedHtml = this._injectHeadContent(
-        html.replace(/\b(src|href)="(\/(?!\/)[^"]*|\.\/[^"]*)"/g, (match, _attr, uri) => {
-          const webviewUri = webviewView.webview.asWebviewUri(this._getMediaUri(uri)).toString()
-          return match.replace(uri, webviewUri)
-        }),
+        this._rewriteHtmlResources(html, webviewView.webview),
         content.head,
       )
       webviewView.webview.html = this._injectBodyEndContent(renderedHtml, content.bodyEnd)
     }
     catch (error) {
       webviewView.dispose()
+      if (requestId !== this.createRequestId)
+        return
       throw error
     }
 
@@ -246,6 +262,15 @@ export class CreateWebview {
         return `<link href="${this._escapeHtmlAttribute(styleUri.toString())}" rel="stylesheet">`
       })
       .join('\n')
+
+    if (!this.enableScripts) {
+      return {
+        head: `${this._getCspMeta(webview, nonce)}
+          ${styles}`,
+        bodyEnd: '',
+      }
+    }
+
     const preScripts: string[] = []
     const postScripts: string[] = []
     const scripts = this._scripts
@@ -375,6 +400,45 @@ export class CreateWebview {
     return /<meta\b[^>]*\bhttp-equiv\s*=\s*(?:"\s*content-security-policy\s*"|'\s*content-security-policy\s*'|content-security-policy\b)/i.test(html)
   }
 
+  private _rewriteHtmlResources(html: string, webview: vscode.Webview) {
+    const rewriteUri = (uri: string) => {
+      return this._escapeHtmlAttribute(webview.asWebviewUri(this._getMediaUri(uri)).toString())
+    }
+
+    return html
+      .replace(/<((?:script|img|source|video|audio|track|iframe)\b[^>]*?\s+src\s*=\s*")(\/(?!\/)[^"]*|\.\/[^"]*)"/gi, (_match, before, uri) => {
+        return `<${before}${rewriteUri(uri)}"`
+      })
+      .replace(/<link\b[^>]*>/gi, (tag) => {
+        if (!this._isResourceLinkTag(tag))
+          return tag
+
+        return tag.replace(/(\s+href\s*=\s*")(\/(?!\/)[^"]*|\.\/[^"]*)"/i, (_match, before, uri) => {
+          return `${before}${rewriteUri(uri)}"`
+        })
+      })
+  }
+
+  private _isResourceLinkTag(tag: string) {
+    const rel = tag.match(/\s+rel\s*=\s*"([^"]*)"/i)?.[1]
+    if (!rel)
+      return false
+
+    const resourceRels = new Set([
+      'apple-touch-icon',
+      'apple-touch-icon-precomposed',
+      'icon',
+      'manifest',
+      'mask-icon',
+      'modulepreload',
+      'prefetch',
+      'preload',
+      'stylesheet',
+    ])
+
+    return rel.toLowerCase().split(/\s+/).some(value => resourceRels.has(value))
+  }
+
   private _assertExternalResourceAllowed(kind: 'script' | 'style', uri: string, allowedSources: string[]) {
     if (this.csp || !this._isExternalUri(uri) || this._isAllowedExternalResource(uri, allowedSources))
       return
@@ -383,7 +447,13 @@ export class CreateWebview {
   }
 
   private _isExternalUri(uri: string) {
-    return /^https?:\/\//.test(uri)
+    try {
+      const protocol = new URL(uri).protocol
+      return protocol === 'http:' || protocol === 'https:'
+    }
+    catch {
+      return false
+    }
   }
 
   private _isAllowedExternalResource(uri: string, allowedSources: string[]) {

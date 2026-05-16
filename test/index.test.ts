@@ -126,6 +126,20 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="https://cdn.example.com/app.js"></script>')
   })
 
+  it('treats uppercase HTTPS URLs as external resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['HTTPS://cdn.example.com/app.js'],
+      allowedScriptSources: ['https://cdn.example.com'],
+    })
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('<script src="HTTPS://cdn.example.com/app.js"></script>')
+    expect(html).not.toContain('webview:/extension/media/HTTPS:')
+  })
+
   it('preserves query strings and fragments on local style and script paths', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
@@ -274,6 +288,32 @@ describe('CreateWebview', () => {
 
     expect(namedHtml).toMatch(/if \(!window\["editorApi"\]\)\s*window\["editorApi"\] = acquireVsCodeApi\(\);/)
     expect(legacyHtml).toMatch(/if \(!window\["vscode"\]\)\s*window\["vscode"\] = acquireVsCodeApi\(\);/)
+  })
+
+  it('does not inject scripts when enableScripts is false', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      enableScripts: false,
+      exposeVsCodeApi: true,
+      styles: ['main.css'],
+      scripts: [
+        { enforce: 'pre', src: 'pre.js' },
+        'post.js',
+      ],
+    })
+
+    provider.setProps({ name: 'Ada' })
+    provider.deferScript('window.inline = true')
+    provider.deferScriptUri('deferred.js')
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('<link href="webview:/extension/media/main.css" rel="stylesheet">')
+    expect(html).not.toContain('<script')
+    expect(html).not.toContain('acquireVsCodeApi')
+    expect(html).not.toContain('window.__WEBVIEW_PROPS__')
+    expect(html).not.toContain('window.inline = true')
+    expect(html).not.toContain('webview:/extension/media/deferred.js')
   })
 
   it('replaces custom CSP placeholders', async () => {
@@ -500,6 +540,23 @@ describe('CreateWebview', () => {
     await expect(provider.postMessage({ ok: true })).resolves.toBe(false)
   })
 
+  it('destroy ignores pending createWithHTMLUrl read failures', async () => {
+    const { CreateWebview } = await import('../src/index')
+    let rejectRead!: (error: Error) => void
+    const read = new Promise<Buffer>((_resolve, reject) => {
+      rejectRead = reject
+    })
+    vscodeMock.workspace.fs.readFile.mockReturnValue(read)
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    const create = provider.createWithHTMLUrl('./src/webview/index.html')
+    provider.destroy()
+    rejectRead(new Error('read failed'))
+    await expect(create).resolves.toBeUndefined()
+
+    expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
+  })
+
   it('destroy cancels pending create renders', async () => {
     const { CreateWebview } = await import('../src/index')
     const panel = createPanel()
@@ -519,6 +576,26 @@ describe('CreateWebview', () => {
     expect(panel.dispose).toHaveBeenCalledTimes(1)
     await expect(provider.postMessage({ ok: true })).resolves.toBe(false)
     expect(panel.webview.postMessage).not.toHaveBeenCalled()
+  })
+
+  it('destroy ignores pending create render failures', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    let rejectRender!: (error: Error) => void
+    const render = new Promise<string>((_resolve, reject) => {
+      rejectRender = reject
+    })
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    ;(provider as any)._getHtmlForWebview = vi.fn().mockReturnValue(render)
+
+    const create = provider.create('<div>slow</div>')
+    provider.destroy()
+    rejectRender(new Error('render failed'))
+    await expect(create).resolves.toBeUndefined()
+
+    expect(panel.dispose).toHaveBeenCalledTimes(1)
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(false)
   })
 
   it('keeps the previous panel when create rendering fails', async () => {
@@ -643,6 +720,26 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js"')
     expect(panel.webview.html).toContain('src="//cdn.example.com/app.js"')
     expect(panel.webview.html).not.toContain('webview:/extension/media/cdn.example.com')
+  })
+
+  it('rewrites only resource-bearing html url attributes', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><base href="/"><link rel="canonical" href="/page"><link rel="stylesheet" href="./main.css"></head><body><a href="/settings">Settings</a><form action="/submit"></form><img src="./icon.png"><script src="/app.js"></script></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toContain('<base href="/">')
+    expect(panel.webview.html).toContain('<link rel="canonical" href="/page">')
+    expect(panel.webview.html).toContain('<a href="/settings">Settings</a>')
+    expect(panel.webview.html).toContain('<form action="/submit"></form>')
+    expect(panel.webview.html).toContain('href="webview:/extension/media/main.css"')
+    expect(panel.webview.html).toContain('src="webview:/extension/media/icon.png"')
+    expect(panel.webview.html).toContain('src="webview:/extension/media/app.js"')
   })
 
   it('preserves query strings and fragments when rewriting html url resources', async () => {
