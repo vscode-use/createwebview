@@ -1,7 +1,7 @@
 {
   "name": "@vscode-use/createwebview",
-  "version": "0.0.13",
-  "packageManager": "pnpm@7.2.1",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.33.4",
   "description": "",
   "author": "Simon He",
   "license": "MIT",
@@ -42,15 +42,15 @@
     "onStartupFinished"
   ],
   "scripts": {
-    "build": "tsup ./src/index.ts --format cjs,esm --dts --clean --minify",
-    "dev": "tsup ./src/index.ts --format cjs,esm --dts --clean --watch src",
+    "build": "tsup",
+    "dev": "tsup --watch src",
     "format": "prettier --write --cache .",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx,.md,.json --max-warnings 0 --cache",
     "lint:fix": "pnpm run lint --fix",
-    "prepublishOnly": "nr build",
+    "prepublishOnly": "pnpm build",
     "release": "bumpp && npm publish",
     "start": "esno src/index.ts",
-    "test": "vitest",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

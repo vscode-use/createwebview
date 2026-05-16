@@ -1,88 +1,217 @@
-import fsp from 'node:fs/promises'
-import path from 'node:path'
+import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 
 export interface Options {
+  viewType?: string
   title?: string
-  scripts?: string | (string | { enforce: 'pre' | 'post'; src: string })[]
+  scripts?: string | (string | { enforce?: 'pre' | 'post'; src: string })[]
   styles?: string | string[]
   onMessage?: (data: any) => void
   viewColumn?: vscode.ViewColumn
   retainContextWhenHidden?: boolean
+  enableScripts?: boolean
+  allowedScriptSources?: string[]
+  allowedStyleSources?: string[]
+  allowedImageSources?: string[]
+  allowedFontSources?: string[]
+  allowedConnectSources?: string[]
+  allowedMediaSources?: string[]
+  allowedFrameSources?: string[]
+  allowedManifestSources?: string[]
+  allowedWorkerSources?: string[]
+  allowedPrefetchSources?: string[]
+  csp?: string
+  existingCsp?: 'error' | 'replace'
   html?: string
+  exposeVsCodeApi?: boolean | string
 }
 export class CreateWebview {
-  private webviewView: any
+  private webviewView?: vscode.WebviewPanel
+  private createRequestId = 0
   private _deferScript = ''
   private _extensionUri: vscode.Uri
-  private _extensionPath: string
   private props: Record<string, any> = {}
-  private scriptsPromises: Promise<string>[] = []
+  private deferredScriptUris: string[] = []
   private viewColumn: vscode.ViewColumn
+  private _viewType: string
   private _title: string
-  private _scripts: string | (string | { enforce: 'pre' | 'post'; src: string })[]
-  private _styles: string | string[]
+  private _html: string
+  private _scripts: (string | { enforce?: 'pre' | 'post'; src: string })[]
+  private _styles: string[]
   private retainContextWhenHidden: boolean
+  private enableScripts: boolean
+  private allowedScriptSources: string[]
+  private allowedStyleSources: string[]
+  private allowedImageSources: string[]
+  private allowedFontSources: string[]
+  private allowedConnectSources: string[]
+  private allowedMediaSources: string[]
+  private allowedFrameSources: string[]
+  private allowedManifestSources: string[]
+  private allowedWorkerSources: string[]
+  private allowedPrefetchSources: string[]
+  private csp?: string
+  private existingCsp: 'error' | 'replace'
   private onMessage?: (data: any) => void
+  private exposeVsCodeApi?: string
   constructor(
-    private readonly _extension: vscode.ExtensionContext,
+    extension: vscode.ExtensionContext | vscode.Uri,
     options: Options,
   ) {
-    this._extensionUri = _extension.extensionUri
-    this._extensionPath = _extension.extensionPath
+    this._extensionUri = 'extensionUri' in extension ? extension.extensionUri : extension
     this._title = options.title || 'webview'
-    this._scripts = options.scripts || ''
-    this._styles = options.styles || ''
+    this._viewType = options.viewType || this._title
+    this._html = options.html || ''
+    this._scripts = options.scripts
+      ? (Array.isArray(options.scripts) ? options.scripts : [options.scripts])
+      : []
+    this._styles = options.styles
+      ? (Array.isArray(options.styles) ? options.styles : [options.styles])
+      : []
     this.viewColumn = options.viewColumn || vscode.ViewColumn.One
-    this.retainContextWhenHidden = options.retainContextWhenHidden === undefined ? true : options.retainContextWhenHidden
+    this.retainContextWhenHidden = options.retainContextWhenHidden ?? false
+    this.enableScripts = options.enableScripts ?? true
+    this.allowedScriptSources = options.allowedScriptSources || []
+    this.allowedStyleSources = options.allowedStyleSources || []
+    this.allowedImageSources = options.allowedImageSources || []
+    this.allowedFontSources = options.allowedFontSources || []
+    this.allowedConnectSources = options.allowedConnectSources || []
+    this.allowedMediaSources = options.allowedMediaSources || []
+    this.allowedFrameSources = options.allowedFrameSources || []
+    this.allowedManifestSources = options.allowedManifestSources || []
+    this.allowedWorkerSources = options.allowedWorkerSources || []
+    this.allowedPrefetchSources = options.allowedPrefetchSources || []
+    this.csp = options.csp
+    this.existingCsp = options.existingCsp || 'error'
+    if (!this.csp) {
+      this._assertValidCspSourceTokens('allowedScriptSources', this.allowedScriptSources)
+      this._assertValidCspSourceTokens('allowedStyleSources', this.allowedStyleSources)
+      this._assertValidCspSourceTokens('allowedImageSources', this.allowedImageSources)
+      this._assertValidCspSourceTokens('allowedFontSources', this.allowedFontSources)
+      this._assertValidCspSourceTokens('allowedConnectSources', this.allowedConnectSources)
+      this._assertValidCspSourceTokens('allowedMediaSources', this.allowedMediaSources)
+      this._assertValidCspSourceTokens('allowedFrameSources', this.allowedFrameSources)
+      this._assertValidCspSourceTokens('allowedManifestSources', this.allowedManifestSources)
+      this._assertValidCspSourceTokens('allowedWorkerSources', this.allowedWorkerSources)
+      this._assertValidCspSourceTokens('allowedPrefetchSources', this.allowedPrefetchSources)
+    }
     this.onMessage = options.onMessage
+    if (options.exposeVsCodeApi === true)
+      this.exposeVsCodeApi = 'vscode'
+    else if (typeof options.exposeVsCodeApi === 'string')
+      this.exposeVsCodeApi = options.exposeVsCodeApi
   }
 
   public setProps(props: Record<string, any>) {
     this.props = { ...this.props, ...props }
   }
 
-  public async create(html: string, callback: (data: any) => void = () => { }) {
+  public async create(html = this._html, callback: (data: any) => void = () => { }) {
+    const requestId = ++this.createRequestId
     const webviewView = vscode.window.createWebviewPanel(
-      this._title, // 视图的声明方式
+      this._viewType, // 视图的声明方式
       this._title, // 选项卡标题
       this.viewColumn, // 在编辑器中显示的视图位置
       {
-        enableScripts: true, // 启用JS,否则内容将被视为静态HTML
-        localResourceRoots: [this._extensionUri],
+        enableScripts: this.enableScripts, // 启用JS,否则内容将被视为静态HTML
+        localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')],
         retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
+
+    let renderedHtml: string
+    try {
+      renderedHtml = await this._getHtmlForWebview(
+        webviewView.webview,
+        html,
+      )
+    }
+    catch (error) {
+      webviewView.dispose()
+      if (requestId !== this.createRequestId)
+        return
+      throw error
+    }
+
+    if (requestId !== this.createRequestId) {
+      webviewView.dispose()
+      return
+    }
+
+    this._bindMessageHandler(webviewView, callback)
+    webviewView.webview.html = renderedHtml
+    this.webviewView?.dispose()
     this.webviewView = webviewView
-    webviewView.webview.html = await this._getHtmlForWebview(
-      webviewView.webview,
-      html,
-    )
-    webviewView.webview.onDidReceiveMessage((data: any) => {
-      callback(data)
-      this.onMessage && this.onMessage(data)
+    webviewView.onDidDispose(() => {
+      if (this.webviewView === webviewView)
+        this.webviewView = undefined
     })
   }
 
   public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
-    const html = await fsp.readFile(path.resolve(this._extensionPath, htmlUrl), 'utf-8')
+    const requestId = ++this.createRequestId
+    let bytes: Uint8Array
+    try {
+      bytes = await vscode.workspace.fs.readFile(this._getExtensionFileUri(htmlUrl))
+    }
+    catch (error) {
+      if (requestId !== this.createRequestId)
+        return
+      throw error
+    }
+    if (requestId !== this.createRequestId)
+      return
+
+    let html = new TextDecoder('utf-8').decode(bytes)
+    const hasExistingCsp = this._hasCspMeta(html)
+    if (hasExistingCsp) {
+      if (this.existingCsp !== 'replace')
+        throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+      html = this._removeCspMeta(html)
+    }
+
     const webviewView = vscode.window.createWebviewPanel(
-      this._title, // 视图的声明方式
+      this._viewType, // 视图的声明方式
       this._title, // 选项卡标题
       this.viewColumn, // 在编辑器中显示的视图位置
       {
-        enableScripts: true, // 启用JS,否则内容将被视为静态HTML
-        localResourceRoots: [this._extensionUri],
+        enableScripts: this.enableScripts, // 启用JS,否则内容将被视为静态HTML
+        localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')],
         retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
+
+    try {
+      const content = await this._getWebviewContent(webviewView.webview)
+      if (requestId !== this.createRequestId) {
+        webviewView.dispose()
+        return
+      }
+
+      const renderedHtml = this._injectHeadContent(
+        this._rewriteHtmlResources(html, webviewView.webview),
+        content.head,
+      )
+      this._bindMessageHandler(webviewView, callback)
+      webviewView.webview.html = this._injectBodyEndContent(renderedHtml, content.bodyEnd)
+    }
+    catch (error) {
+      webviewView.dispose()
+      if (requestId !== this.createRequestId)
+        return
+      throw error
+    }
+
+    if (requestId !== this.createRequestId) {
+      webviewView.dispose()
+      return
+    }
+
+    this.webviewView?.dispose()
     this.webviewView = webviewView
-    webviewView.webview.html = html.replace(/(?:src|href)="([/.][^"]*)"/g, (_, u) => _.replace(u, webviewView.webview.asWebviewUri(vscode.Uri.file(
-      path.join(this._extensionPath, 'media', u),
-    )).toString())).replace(/(<\/head>)/, '<script>\n  const vscode = acquireVsCodeApi();\n  </script>\n  $1')
-    webviewView.webview.onDidReceiveMessage((data: any) => {
-      callback(data)
-      this.onMessage && this.onMessage(data)
+    webviewView.onDidDispose(() => {
+      if (this.webviewView === webviewView)
+        this.webviewView = undefined
     })
   }
 
@@ -99,8 +228,13 @@ export class CreateWebview {
   }
 
   public destory() {
-    if (this.webviewView)
-      this.webviewView.dispose()
+    this.destroy()
+  }
+
+  public destroy() {
+    this.createRequestId++
+    this.webviewView?.dispose()
+    this.webviewView = undefined
   }
 
   public deferScript(scripts: string | string[]) {
@@ -109,41 +243,59 @@ export class CreateWebview {
   }
 
   public deferScriptUri(scriptUri: string | string[]) {
-    try {
-      const uris = typeof scriptUri === 'string' ? [scriptUri] : scriptUri
-      this.scriptsPromises.push(...uris.map(uri => fsp.readFile(
-        `${this._extensionUri.path}/media/${uri}`
-        , 'utf-8')))
-    }
-    catch (error: any) {
-      throw new Error(error.message)
-    }
+    const uris = typeof scriptUri === 'string' ? [scriptUri] : scriptUri
+    this.deferredScriptUris.push(...uris)
   }
 
-  public postMessage(data: any) {
-    if (this.webviewView)
-      this.webviewView.webview.postMessage(data)
+  public async postMessage(data: any) {
+    return this.webviewView?.webview.postMessage(data) ?? false
   }
 
   private async _getHtmlForWebview(webview: vscode.Webview, html: string) {
-    const outerUriReg = /^http[s]:\/\//
+    const content = await this._getWebviewContent(webview)
+
+    return `<!DOCTYPE html>
+			<html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          ${content.head}
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${this._escapeHtmlText(this._title)}</title>
+        </head>
+        <body>
+          ${html}
+          ${content.bodyEnd}
+        </body>
+			</html>`
+  }
+
+  private async _getWebviewContent(webview: vscode.Webview) {
+    const nonce = this._getNonce()
     const styles = this._styles
-      ? (Array.isArray(this._styles) ? this._styles : [this._styles])
-          .map((style) => {
-            const styleUri = outerUriReg.test(style)
-              ? style
-              : webview.asWebviewUri(
-                vscode.Uri.joinPath(this._extensionUri, 'media', style),
-              )
-            return `<link href="${styleUri}" rel="stylesheet">`
-          })
-          .join('\n')
-      : ''
+      .filter(Boolean)
+      .map((style) => {
+        this._assertSupportedResourceUri(style, 'style')
+        this._assertExternalResourceAllowed('style', style, this.allowedStyleSources)
+        const styleUri = this._isExternalUri(style)
+          ? style
+          : webview.asWebviewUri(
+            this._getMediaUri(style),
+          )
+        return `<link href="${this._escapeHtmlAttribute(styleUri.toString())}" rel="stylesheet">`
+      })
+      .join('\n')
+
+    if (!this.enableScripts) {
+      return {
+        head: `${this._getCspMeta(webview, nonce)}
+          ${styles}`,
+        bodyEnd: '',
+      }
+    }
+
     const preScripts: string[] = []
     const postScripts: string[] = []
-    const scripts = Array.isArray(this._scripts)
-      ? this._scripts
-      : [this._scripts]
+    const scripts = this._scripts
 
     scripts.forEach((script) => {
       let isPre = false
@@ -151,43 +303,337 @@ export class CreateWebview {
         isPre = script.enforce === 'pre'
         script = script.src
       }
-      const scriptUri = outerUriReg.test(script)
+      if (!script)
+        return
+
+      if (/^<script\b/i.test(script.trim()))
+        throw new Error('Use script paths/URLs in options.scripts; use deferScript for inline scripts.')
+
+      this._assertSupportedResourceUri(script, 'script')
+      this._assertExternalResourceAllowed('script', script, this.allowedScriptSources)
+      const scriptUri = this._isExternalUri(script)
         ? script
         : webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'media', script),
+          this._getMediaUri(script),
         )
-      const _script = script.startsWith('<script')
-        ? script
-        : `<script src="${scriptUri}"></script>`
+      const _script = `<script src="${this._escapeHtmlAttribute(scriptUri.toString())}"></script>`
 
       if (isPre)
         preScripts.push(_script)
       else
         postScripts.push(_script)
     })
-    const scriptsUri = await Promise.all(this.scriptsPromises).then(scripts =>
-      scripts.map(script => `<script>${script.replace('webviewThis', JSON.stringify(this.props))}</script>`),
-    )
+    const scriptsUri = this.deferredScriptUris
+      .map((uri) => {
+        this._assertSupportedResourceUri(uri, 'deferred script')
+        this._assertLocalMediaPath(uri, 'deferred script')
+        const src = webview.asWebviewUri(this._getMediaUri(uri)).toString()
+        return `<script src="${this._escapeHtmlAttribute(src)}"></script>`
+      })
+    let vscodeApiScript = ''
+    if (this.exposeVsCodeApi) {
+      const apiName = this._serializeForInlineScript(this.exposeVsCodeApi)
+      vscodeApiScript = `<script nonce="${nonce}">
+            if (!window[${apiName}])
+              window[${apiName}] = acquireVsCodeApi();
+          </script>`
+    }
+
+    return {
+      head: `${this._getCspMeta(webview, nonce)}
+          ${styles}
+          ${vscodeApiScript}
+          <script nonce="${nonce}">
+            window.__WEBVIEW_PROPS__ = ${this._serializeForInlineScript(this.props)}
+          </script>
+          ${preScripts.length ? preScripts.join('\n') : ''}`,
+      bodyEnd: `${postScripts.join('\n')}
+        ${this._renderInlineScript(this._deferScript, nonce)}
+        ${scriptsUri.join('\n')}`,
+    }
+  }
+
+  private _getMediaUri(uri: string) {
+    const match = uri.match(/^([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/)
+    const rawPath = match?.[1] ?? uri
+    const query = match?.[2] ?? ''
+    const fragment = match?.[3] ?? ''
+    const normalized = this._normalizeSafePath(rawPath, 'media', uri)
+
+    const mediaUri = vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
+    return query || fragment ? mediaUri.with({ query, fragment }) : mediaUri
+  }
+
+  private _getExtensionFileUri(uri: string) {
+    this._assertRelativeExtensionPath(uri)
+    const normalized = this._normalizeSafePath(uri, 'extension file', uri)
+
+    return vscode.Uri.joinPath(this._extensionUri, normalized)
+  }
+
+  private _normalizeSafePath(path: string, kind: string, originalUri: string) {
+    const normalized = path
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/^\.\/+/, '')
+
+    let decoded = ''
+    try {
+      decoded = decodeURIComponent(normalized).replace(/\\/g, '/')
+    }
+    catch {
+      throw new Error(`Invalid ${kind} path: ${originalUri}`)
+    }
+
+    if (decoded.split('/').some(segment => segment.toLowerCase() === '..'))
+      throw new Error(`Invalid ${kind} path: ${originalUri}`)
+
+    return normalized
+  }
+
+  private _getNonce() {
+    return randomBytes(16).toString('base64')
+  }
+
+  private _getCspMeta(webview: vscode.Webview, nonce: string) {
+    return `<meta http-equiv="Content-Security-Policy" content="${this._escapeHtmlAttribute(this._getCsp(webview, nonce))}">`
+  }
+
+  private _getCsp(webview: vscode.Webview, nonce: string) {
+    if (this.csp) {
+      return this.csp
+        .replace(/\$\{nonce\}/g, nonce)
+        .replace(/\$\{webview.cspSource\}/g, webview.cspSource)
+    }
+
+    const scriptSources = this.enableScripts
+      ? [`'nonce-${nonce}'`, webview.cspSource, ...this.allowedScriptSources]
+      : ['\'none\'']
+    const styleSources = [webview.cspSource, ...this.allowedStyleSources]
+    const imageSources = [webview.cspSource, 'https:', 'data:', ...this.allowedImageSources]
+    const fontSources = [webview.cspSource, 'https:', 'data:', ...this.allowedFontSources]
+    const connectSources = [webview.cspSource, ...this.allowedConnectSources]
+    const mediaSources = [webview.cspSource, ...this.allowedMediaSources]
+    const frameSources = [webview.cspSource, ...this.allowedFrameSources]
+    const manifestSources = [webview.cspSource, ...this.allowedManifestSources]
+    const workerSources = this.enableScripts
+      ? [webview.cspSource, ...this.allowedWorkerSources]
+      : ['\'none\'']
+    const prefetchSources = [webview.cspSource, ...this.allowedPrefetchSources]
+
+    return [
+      'default-src \'none\'',
+      'base-uri \'none\'',
+      'form-action \'none\'',
+      'object-src \'none\'',
+      `img-src ${imageSources.join(' ')}`,
+      `font-src ${fontSources.join(' ')}`,
+      `connect-src ${connectSources.join(' ')}`,
+      `style-src ${styleSources.join(' ')}`,
+      `script-src ${scriptSources.join(' ')}`,
+      `media-src ${mediaSources.join(' ')}`,
+      `frame-src ${frameSources.join(' ')}`,
+      `manifest-src ${manifestSources.join(' ')}`,
+      `worker-src ${workerSources.join(' ')}`,
+      `prefetch-src ${prefetchSources.join(' ')}`,
+    ].join('; ')
+  }
+
+  private _injectHeadContent(html: string, content: string) {
+    if (/<head\b[^>]*>/i.test(html))
+      return html.replace(/<head\b[^>]*>/i, match => `${match}\n${content}`)
+
+    if (/<html\b[^>]*>/i.test(html))
+      return html.replace(/<html\b[^>]*>/i, match => `${match}\n<head>\n${content}\n</head>`)
+
+    const doctypeMatch = html.match(/^(\s*<!doctype\b[^>]*>)([\s\S]*)$/i)
+    if (doctypeMatch) {
+      const [, doctype, rest] = doctypeMatch
+      if (/<body\b[^>]*>/i.test(rest))
+        return `${doctype}\n<html>\n<head>\n${content}\n</head>${rest}\n</html>`
+
+      return `${doctype}\n<html>\n<head>\n${content}\n</head>\n<body>${rest}\n</body>\n</html>`
+    }
 
     return `<!DOCTYPE html>
-			<html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${this._title}</title>
-          ${styles}
-          <script>
-            const vscode = acquireVsCodeApi();
-          </script>
-          ${preScripts.length ? preScripts.join('\n') : ''}
-        </head>
-        <body>
-          ${html}
-        </body>
-        ${postScripts.join('\n')}
-        ${this._deferScript}
-        ${scriptsUri.join('\n')}
-			</html>`
+<html lang="en">
+<head>
+${content}
+</head>
+<body>
+${html}
+</body>
+</html>`
+  }
+
+  private _injectBodyEndContent(html: string, content: string) {
+    return /<\/body>/i.test(html)
+      ? html.replace(/<\/body>/i, () => `${content}\n</body>`)
+      : `${html}\n${content}`
+  }
+
+  private _bindMessageHandler(webviewView: vscode.WebviewPanel, callback: (data: any) => void) {
+    webviewView.webview.onDidReceiveMessage((data: any) => {
+      callback(data)
+      this.onMessage?.(data)
+    })
+  }
+
+  private _hasCspMeta(html: string) {
+    return html.match(/<meta\b[^>]*>/gi)?.some(tag => this._isCspMeta(tag)) ?? false
+  }
+
+  private _removeCspMeta(html: string) {
+    return html.replace(/<meta\b[^>]*>/gi, tag => this._isCspMeta(tag) ? '' : tag)
+  }
+
+  private _isCspMeta(tag: string) {
+    return /\bhttp-equiv\s*=\s*(?:"\s*content-security-policy\s*"|'\s*content-security-policy\s*'|content-security-policy\b)/i.test(tag)
+  }
+
+  private _rewriteHtmlResources(html: string, webview: vscode.Webview) {
+    const rewriteUri = (uri: string) => {
+      return this._escapeHtmlAttribute(webview.asWebviewUri(this._getMediaUri(uri)).toString())
+    }
+
+    return html
+      .replace(/<((?:script|img|source|video|audio|track|iframe)\b[^>]*?\s+src\s*=\s*")(\/(?!\/)[^"]*|\.\/[^"]*)"/gi, (_match, before, uri) => {
+        return `<${before}${rewriteUri(uri)}"`
+      })
+      .replace(/<link\b[^>]*>/gi, (tag) => {
+        if (!this._isResourceLinkTag(tag))
+          return tag
+
+        return tag.replace(/(\s+href\s*=\s*")(\/(?!\/)[^"]*|\.\/[^"]*)"/i, (_match, before, uri) => {
+          return `${before}${rewriteUri(uri)}"`
+        })
+      })
+  }
+
+  private _isResourceLinkTag(tag: string) {
+    const rel = tag.match(/\s+rel\s*=\s*"([^"]*)"/i)?.[1]
+    if (!rel)
+      return false
+
+    const resourceRels = new Set([
+      'apple-touch-icon',
+      'apple-touch-icon-precomposed',
+      'icon',
+      'manifest',
+      'mask-icon',
+      'modulepreload',
+      'prefetch',
+      'preload',
+      'stylesheet',
+    ])
+
+    return rel.toLowerCase().split(/\s+/).some(value => resourceRels.has(value))
+  }
+
+  private _assertExternalResourceAllowed(kind: 'script' | 'style', uri: string, allowedSources: string[]) {
+    if (this.csp || !this._isExternalUri(uri) || this._isAllowedExternalResource(uri, allowedSources))
+      return
+
+    throw new Error(`External ${kind} source is not allowed by CSP: ${uri}`)
+  }
+
+  private _assertSupportedResourceUri(uri: string, kind: string) {
+    if (/^\/\//.test(uri))
+      throw new Error(`Protocol-relative ${kind} URI is not supported. Use an explicit https:// URL: ${uri}`)
+
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) && !this._isExternalUri(uri))
+      throw new Error(`Unsupported ${kind} URI scheme: ${uri}`)
+  }
+
+  private _assertLocalMediaPath(uri: string, kind: string) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) || /^\/\//.test(uri))
+      throw new Error(`${kind} must be a path under the media directory: ${uri}`)
+  }
+
+  private _assertRelativeExtensionPath(uri: string) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) || /^\/\//.test(uri))
+      throw new Error(`HTML URL must be a relative extension path: ${uri}`)
+  }
+
+  private _isExternalUri(uri: string) {
+    try {
+      const protocol = new URL(uri).protocol
+      return protocol === 'http:' || protocol === 'https:'
+    }
+    catch {
+      return false
+    }
+  }
+
+  private _isAllowedExternalResource(uri: string, allowedSources: string[]) {
+    const parsed = new URL(uri)
+
+    return allowedSources.some((source) => {
+      if (source === '*')
+        return true
+
+      if (source === parsed.protocol || source === parsed.origin || source === uri)
+        return true
+
+      const wildcardSource = source.match(/^(https?:)\/\/\*\.(.+)$/)
+      if (wildcardSource) {
+        const [, protocol, hostname] = wildcardSource
+        return parsed.protocol === protocol && parsed.hostname.endsWith(`.${hostname.replace(/\/$/, '')}`)
+      }
+
+      if (!this._isExternalUri(source))
+        return false
+
+      const allowed = new URL(source)
+      if (allowed.origin !== parsed.origin)
+        return false
+
+      const allowedPath = allowed.pathname.endsWith('/') ? allowed.pathname : `${allowed.pathname}/`
+      return parsed.pathname === allowed.pathname || parsed.pathname.startsWith(allowedPath)
+    })
+  }
+
+  private _assertValidCspSourceTokens(optionName: string, sources: string[]) {
+    const invalidSource = sources.find(source => /[\s;"<>]/.test(source))
+    if (invalidSource)
+      throw new Error(`Invalid CSP source token in ${optionName}: ${invalidSource}`)
+  }
+
+  private _renderInlineScript(script: string, nonce: string) {
+    if (!script)
+      return ''
+
+    if (/^<script\b/i.test(script.trim()))
+      throw new Error('deferScript accepts JavaScript source only. Use deferScriptUri or options.scripts for script files.')
+
+    return `<script nonce="${nonce}">${this._escapeInlineScriptContent(script)}</script>`
+  }
+
+  private _escapeInlineScriptContent(source: string) {
+    return source.replace(/<\/script/gi, '<\\/script')
+  }
+
+  private _escapeHtmlText(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+  }
+
+  private _escapeHtmlAttribute(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+  }
+
+  private _serializeForInlineScript(value: unknown) {
+    return JSON.stringify(value)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/&/g, '\\u0026')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029')
   }
 }
-
