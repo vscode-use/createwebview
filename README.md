@@ -79,7 +79,7 @@ The `scripts` option accepts script paths or URLs only. Use `deferScript` for in
 
 `createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons, only when the attribute uses double quotes and the path starts with `./` or a single `/`, such as `src="./app.js"`. Normal links such as `a href`, `base href`, and canonical links are not rewritten. Protocol-relative URLs like `src="//cdn.example.com/app.js"`, bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
 
-HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP blocks inline `<script>`, inline `<style>`, and style attributes in HTML files unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
+HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
 
 When providing a custom `csp`, include `${nonce}` for runtime inline scripts and `${webview.cspSource}` for local webview resources:
 

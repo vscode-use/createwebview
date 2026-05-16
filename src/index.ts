@@ -267,6 +267,7 @@ export class CreateWebview {
     const styles = this._styles
       .filter(Boolean)
       .map((style) => {
+        this._assertSupportedResourceUri(style, 'style')
         this._assertExternalResourceAllowed('style', style, this.allowedStyleSources)
         const styleUri = this._isExternalUri(style)
           ? style
@@ -298,9 +299,10 @@ export class CreateWebview {
       if (!script)
         return
 
-      if (script.trim().startsWith('<script'))
+      if (/^<script\b/i.test(script.trim()))
         throw new Error('Use script paths/URLs in options.scripts; use deferScript for inline scripts.')
 
+      this._assertSupportedResourceUri(script, 'script')
       this._assertExternalResourceAllowed('script', script, this.allowedScriptSources)
       const scriptUri = this._isExternalUri(script)
         ? script
@@ -316,6 +318,7 @@ export class CreateWebview {
     })
     const scriptsUri = this.deferredScriptUris
       .map((uri) => {
+        this._assertSupportedResourceUri(uri, 'deferred script')
         const src = webview.asWebviewUri(this._getMediaUri(uri)).toString()
         return `<script src="${this._escapeHtmlAttribute(src)}"></script>`
       })
@@ -407,6 +410,9 @@ export class CreateWebview {
 
     return [
       'default-src \'none\'',
+      'base-uri \'none\'',
+      'form-action \'none\'',
+      'object-src \'none\'',
       `img-src ${imageSources.join(' ')}`,
       `font-src ${fontSources.join(' ')}`,
       `connect-src ${connectSources.join(' ')}`,
@@ -426,6 +432,9 @@ export class CreateWebview {
 
     if (/<html\b[^>]*>/i.test(html))
       return html.replace(/<html\b[^>]*>/i, match => `${match}\n<head>\n${content}\n</head>`)
+
+    if (/^\s*<!doctype\b[^>]*>/i.test(html))
+      return html.replace(/^\s*<!doctype\b[^>]*>/i, match => `${match}\n<html>\n<head>\n${content}\n</head>\n`)
 
     return `<head>\n${content}\n</head>\n${html}`
   }
@@ -493,6 +502,11 @@ export class CreateWebview {
     throw new Error(`External ${kind} source is not allowed by CSP: ${uri}`)
   }
 
+  private _assertSupportedResourceUri(uri: string, kind: string) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) && !this._isExternalUri(uri))
+      throw new Error(`Unsupported ${kind} URI scheme: ${uri}`)
+  }
+
   private _isExternalUri(uri: string) {
     try {
       const protocol = new URL(uri).protocol
@@ -547,7 +561,7 @@ export class CreateWebview {
     if (/<script\b[^>]*\snonce\s*=/i.test(script))
       throw new Error('deferScript should not include nonce; createwebview injects it automatically.')
 
-    return script.trim().startsWith('<script')
+    return /^<script\b/i.test(script.trim())
       ? script.replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)
       : `<script nonce="${nonce}">${script}</script>`
   }

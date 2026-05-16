@@ -176,6 +176,24 @@ describe('CreateWebview', () => {
     await expect(renderHtml(styleProvider)).rejects.toThrow('External style source is not allowed by CSP: https://evil.example/app.css')
   })
 
+  it('rejects unsupported URI schemes in configured resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const scriptProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['data:text/javascript,alert(1)'],
+    })
+    const styleProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      styles: ['file:///tmp/theme.css'],
+    })
+    const deferredProvider = new CreateWebview(context as any, { title: 'Test' })
+    deferredProvider.deferScriptUri('vscode:extension/app.js')
+
+    await expect(renderHtml(scriptProvider)).rejects.toThrow('Unsupported script URI scheme: data:text/javascript,alert(1)')
+    await expect(renderHtml(styleProvider)).rejects.toThrow('Unsupported style URI scheme: file:///tmp/theme.css')
+    await expect(renderHtml(deferredProvider)).rejects.toThrow('Unsupported deferred script URI scheme: vscode:extension/app.js')
+  })
+
   it('rejects raw script tags in scripts options', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
@@ -249,6 +267,9 @@ describe('CreateWebview', () => {
 
     expect(html).toContain('http-equiv="Content-Security-Policy"')
     expect(html).toContain('default-src \'none\'')
+    expect(html).toContain('base-uri \'none\'')
+    expect(html).toContain('form-action \'none\'')
+    expect(html).toContain('object-src \'none\'')
     expect(html).toContain('img-src vscode-resource: https: data:')
     expect(html).toContain('font-src vscode-resource: https: data: https://fonts.example.com')
     expect(html).toContain('connect-src vscode-resource: https://api.example.com')
@@ -900,6 +921,22 @@ describe('CreateWebview', () => {
     expect(panel.webview.html.indexOf('</head>')).toBeLessThan(panel.webview.html.indexOf('<body>'))
   })
 
+  it('adds a head element after doctype when html urls omit html and head', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<!doctype html>\n<body><div id="app"></div></body>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toMatch(/^<!doctype html>\s*<html>\s*<head>\s*<meta http-equiv="Content-Security-Policy"/)
+    expect(panel.webview.html.indexOf('<html>')).toBeGreaterThan(panel.webview.html.indexOf('<!doctype html>'))
+    expect(panel.webview.html.indexOf('<head>')).toBeLessThan(panel.webview.html.indexOf('<body>'))
+  })
+
   it('applies configured styles and scripts when loading html urls', async () => {
     const { CreateWebview } = await import('../src/index')
     const panel = createPanel()
@@ -947,5 +984,16 @@ describe('CreateWebview', () => {
     provider.deferScript('<script nonce="old">window.inline = true</script>')
 
     await expect(renderHtml(provider)).rejects.toThrow('deferScript should not include nonce; createwebview injects it automatically.')
+  })
+
+  it('adds a nonce to uppercase deferred inline script tags', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    provider.deferScript('<SCRIPT>window.inline = true</SCRIPT>')
+
+    const html = await renderHtml(provider)
+
+    expect(html).toMatch(/<script nonce="[^"]+">window\.inline = true<\/SCRIPT>/)
   })
 })
