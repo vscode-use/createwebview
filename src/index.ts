@@ -188,6 +188,7 @@ export class CreateWebview {
   }
 
   public destroy() {
+    this.createRequestId++
     this.webviewView?.dispose()
     this.webviewView = undefined
   }

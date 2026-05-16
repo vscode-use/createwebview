@@ -72,7 +72,9 @@ async function renderHtml(provider: any, webview = createWebview()) {
 describe('CreateWebview', () => {
   beforeEach(() => {
     vi.resetModules()
-    vi.clearAllMocks()
+    vscodeMock.window.createWebviewPanel.mockReset()
+    vscodeMock.workspace.fs.readFile.mockReset()
+    vscodeMock.Uri.joinPath.mockClear()
     vi.doMock('vscode', () => vscodeMock)
   })
 
@@ -414,6 +416,45 @@ describe('CreateWebview', () => {
     expect(vscodeMock.window.createWebviewPanel).toHaveBeenCalledTimes(1)
     expect(panel.webview.html).toContain('new')
     expect(panel.webview.html).not.toContain('old')
+  })
+
+  it('destroy cancels pending createWithHTMLUrl reads', async () => {
+    const { CreateWebview } = await import('../src/index')
+    let resolveRead!: (bytes: Buffer) => void
+    const read = new Promise<Buffer>((resolve) => {
+      resolveRead = resolve
+    })
+    vscodeMock.workspace.fs.readFile.mockReturnValue(read)
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    const create = provider.createWithHTMLUrl('./src/webview/index.html')
+    provider.destroy()
+    resolveRead(Buffer.from('<html><head></head><body>slow</body></html>'))
+    await create
+
+    expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(false)
+  })
+
+  it('destroy cancels pending create renders', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    let resolveRender!: (html: string) => void
+    const render = new Promise<string>((resolve) => {
+      resolveRender = resolve
+    })
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    ;(provider as any)._getHtmlForWebview = vi.fn().mockReturnValue(render)
+
+    const create = provider.create('<div>slow</div>')
+    provider.destroy()
+    resolveRender('<div>slow</div>')
+    await create
+
+    expect(panel.dispose).toHaveBeenCalledTimes(1)
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(false)
+    expect(panel.webview.postMessage).not.toHaveBeenCalled()
   })
 
   it('keeps the previous panel when create rendering fails', async () => {
