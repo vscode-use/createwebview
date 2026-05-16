@@ -161,6 +161,21 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="webview:/extension/media/deferred.js?v=2#boot"></script>')
   })
 
+  it('uses configured media roots for local resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      mediaRoot: 'webview-dist',
+      styles: ['main.css'],
+      scripts: ['app.js'],
+    })
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('href="webview:/extension/webview-dist/main.css"')
+    expect(html).toContain('src="webview:/extension/webview-dist/app.js"')
+  })
+
   it('rejects external deferred script uris', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
@@ -309,6 +324,23 @@ describe('CreateWebview', () => {
     expect(html).not.toContain('acquireVsCodeApi')
   })
 
+  it('omits default remote image and font sources when strictCsp is enabled', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      strictCsp: true,
+      allowedImageSources: ['https://img.example.com'],
+      allowedFontSources: ['https://fonts.example.com'],
+    })
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('img-src vscode-resource: https://img.example.com')
+    expect(html).toContain('font-src vscode-resource: https://fonts.example.com')
+    expect(html).not.toContain('img-src vscode-resource: https: data:')
+    expect(html).not.toContain('font-src vscode-resource: https: data:')
+  })
+
   it('rejects invalid CSP source tokens in default CSP options', async () => {
     const { CreateWebview } = await import('../src/index')
     const invalidOptions = [
@@ -450,6 +482,28 @@ describe('CreateWebview', () => {
       },
     )
     expect(panel.webview.html).toContain('<div>default</div>')
+  })
+
+  it('uses configured local resource roots', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    const localResourceRoots = [{ path: '/extension/webview-dist', fsPath: '/extension/webview-dist' }]
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      localResourceRoots: localResourceRoots as any,
+    })
+
+    await provider.create('<div>inline</div>')
+
+    expect(vscodeMock.window.createWebviewPanel).toHaveBeenCalledWith(
+      'Test',
+      'Test',
+      1,
+      expect.objectContaining({
+        localResourceRoots,
+      }),
+    )
   })
 
   it('registers message handlers before assigning html', async () => {
@@ -756,6 +810,27 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="webview:/extension/media/app.js"></script>')
   })
 
+  it('can set add and clear deferred script uris explicitly', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    provider.deferScriptUri('legacy.js')
+    provider.setDeferredScriptUris('one.js')
+    provider.addDeferredScriptUris(['two.js'])
+
+    const html = await renderHtml(provider)
+
+    expect(html).not.toContain('legacy.js')
+    expect(html).toContain('webview:/extension/media/one.js')
+    expect(html).toContain('webview:/extension/media/two.js')
+
+    provider.clearDeferredScriptUris()
+    const clearedHtml = await renderHtml(provider)
+
+    expect(clearedHtml).not.toContain('webview:/extension/media/one.js')
+    expect(clearedHtml).not.toContain('webview:/extension/media/two.js')
+  })
+
   it('escapes props before injecting them into inline scripts', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
@@ -878,13 +953,38 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js?entry=main#boot"')
   })
 
+  it('rewrites single quoted unquoted srcset and css url html resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><link rel=\'stylesheet\' href=main.css><style>.logo{background:url("./logo.png")}.remote{background:url(https://cdn.example.com/bg.png)}</style></head><body><img src=\'./icon.png\' srcset="./small.png 1x, /large.png 2x, https://cdn.example.com/remote.png 3x, data:image/png;base64,aaa 4x"><script src=app.js></script><div style="background:url(\'/inline.png\')"></div></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toContain('href=webview:/extension/media/main.css')
+    expect(panel.webview.html).toContain('src=\'webview:/extension/media/icon.png\'')
+    expect(panel.webview.html).toContain('src=webview:/extension/media/app.js')
+    expect(panel.webview.html).toContain('webview:/extension/media/small.png 1x')
+    expect(panel.webview.html).toContain('webview:/extension/media/large.png 2x')
+    expect(panel.webview.html).toContain('https://cdn.example.com/remote.png 3x')
+    expect(panel.webview.html).toContain('data:image/png;base64,aaa 4x')
+    expect(panel.webview.html).toContain('background:url("webview:/extension/media/logo.png")')
+    expect(panel.webview.html).toContain('background:url(https://cdn.example.com/bg.png)')
+    expect(panel.webview.html).toContain('style="background:url(&quot;webview:/extension/media/inline.png&quot;)"')
+  })
+
   it('rejects path traversal in html url resource attributes', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
     const cases = [
       ['<html><body><img src="./../secret.png"></body></html>', 'Invalid media path: ./../secret.png'],
+      ['<html><body><img src="../secret.png"></body></html>', 'Invalid media path: ../secret.png'],
       ['<html><body><script src="/../secret.js"></script></body></html>', 'Invalid media path: /../secret.js'],
       ['<html><head><link rel="stylesheet" href="./../secret.css"></head><body></body></html>', 'Invalid media path: ./../secret.css'],
+      ['<html><head><style>.logo{background:url("../secret.png")}</style></head><body></body></html>', 'Invalid media path: ../secret.png'],
     ]
 
     for (const [html, error] of cases) {
