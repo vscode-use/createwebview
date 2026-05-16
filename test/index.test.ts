@@ -125,6 +125,33 @@ describe('CreateWebview', () => {
     await expect(renderHtml(styleProvider)).rejects.toThrow('External style source is not allowed by CSP: https://evil.example/app.css')
   })
 
+  it('rejects raw script tags in scripts options', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['<script src="https://evil.example/app.js"></script>'],
+    })
+
+    await expect(renderHtml(provider)).rejects.toThrow('Use script paths/URLs in options.scripts; use deferScript for inline scripts.')
+  })
+
+  it('matches wildcard allowed sources only against their host suffix', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const allowedProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['https://cdn.example.com/app.js'],
+      allowedScriptSources: ['https://*.example.com'],
+    })
+    const rejectedProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['https://evil.com/app.js'],
+      allowedScriptSources: ['https://*.example.com'],
+    })
+
+    await expect(renderHtml(allowedProvider)).resolves.toContain('src="https://cdn.example.com/app.js"')
+    await expect(renderHtml(rejectedProvider)).rejects.toThrow('External script source is not allowed by CSP: https://evil.com/app.js')
+  })
+
   it('does not nonce allowed external script sources', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
@@ -248,9 +275,47 @@ describe('CreateWebview', () => {
     await expect(provider.postMessage({ ok: false })).resolves.toBe(false)
   })
 
-  it('reads deferred script uris through vscode workspace fs', async () => {
+  it('keeps the previous panel when create rendering fails', async () => {
     const { CreateWebview } = await import('../src/index')
-    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from('const props = window.__WEBVIEW_PROPS__'))
+    const oldPanel = createPanel()
+    const newPanel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(newPanel)
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['../secret.js'],
+    })
+    ;(provider as any).webviewView = oldPanel
+
+    await expect(provider.create()).rejects.toThrow('Invalid media path: ../secret.js')
+
+    expect(newPanel.dispose).toHaveBeenCalledTimes(1)
+    expect(oldPanel.dispose).not.toHaveBeenCalled()
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(true)
+    expect(oldPanel.webview.postMessage).toHaveBeenCalledWith({ ok: true })
+  })
+
+  it('keeps the previous panel when createWithHTMLUrl rendering fails', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const oldPanel = createPanel()
+    const newPanel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(newPanel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from('<html><head></head><body></body></html>'))
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      styles: ['../secret.css'],
+    })
+    ;(provider as any).webviewView = oldPanel
+
+    await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow('Invalid media path: ../secret.css')
+
+    expect(newPanel.dispose).toHaveBeenCalledTimes(1)
+    expect(oldPanel.dispose).not.toHaveBeenCalled()
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(true)
+    expect(oldPanel.webview.postMessage).toHaveBeenCalledWith({ ok: true })
+  })
+
+  it('renders deferred script uris as webview script tags', async () => {
+    const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
     provider.setProps({ name: 'Ada' })
@@ -258,13 +323,9 @@ describe('CreateWebview', () => {
 
     const html = await renderHtml(provider)
 
-    expect(vscodeMock.workspace.fs.readFile).toHaveBeenCalledWith({
-      path: '/extension/media/app.js',
-      fsPath: '/extension/media/app.js',
-      toString: expect.any(Function),
-    })
+    expect(vscodeMock.workspace.fs.readFile).not.toHaveBeenCalled()
     expect(html).toContain('window.__WEBVIEW_PROPS__ = {"name":"Ada"}')
-    expect(html).toContain('const props = window.__WEBVIEW_PROPS__')
+    expect(html).toContain('<script src="webview:/extension/media/app.js"></script>')
   })
 
   it('escapes props before injecting them into inline scripts', async () => {
@@ -336,6 +397,17 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js"')
   })
 
+  it('rejects html urls with an existing CSP meta', async () => {
+    const { CreateWebview } = await import('../src/index')
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><meta http-equiv="Content-Security-Policy" content="default-src none"></head><body></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+    expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
+  })
+
   it('injects html url CSP before existing head resources', async () => {
     const { CreateWebview } = await import('../src/index')
     const panel = createPanel()
@@ -355,12 +427,7 @@ describe('CreateWebview', () => {
     const { CreateWebview } = await import('../src/index')
     const panel = createPanel()
     vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
-    vscodeMock.workspace.fs.readFile.mockImplementation(async (uri: any) => {
-      if (uri.path === '/extension/media/deferred.js')
-        return Buffer.from('window.deferred = true')
-
-      return Buffer.from('<html><head></head><body><div id="app"></div></body></html>')
-    })
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from('<html><head></head><body><div id="app"></div></body></html>'))
     const provider = new CreateWebview(context as any, {
       title: 'Test',
       styles: ['main.css'],
@@ -378,6 +445,6 @@ describe('CreateWebview', () => {
     expect(panel.webview.html.indexOf('webview:/extension/media/pre.js')).toBeLessThan(panel.webview.html.indexOf('</head>'))
     expect(panel.webview.html.indexOf('webview:/extension/media/post.js')).toBeLessThan(panel.webview.html.indexOf('</body>'))
     expect(panel.webview.html.indexOf('window.inline = true')).toBeLessThan(panel.webview.html.indexOf('</body>'))
-    expect(panel.webview.html.indexOf('window.deferred = true')).toBeLessThan(panel.webview.html.indexOf('</body>'))
+    expect(panel.webview.html.indexOf('webview:/extension/media/deferred.js')).toBeLessThan(panel.webview.html.indexOf('</body>'))
   })
 })

@@ -23,7 +23,7 @@ export class CreateWebview {
   private _deferScript = ''
   private _extensionUri: vscode.Uri
   private props: Record<string, any> = {}
-  private scriptsPromises: Promise<string>[] = []
+  private deferredScriptUris: string[] = []
   private viewColumn: vscode.ViewColumn
   private _viewType: string
   private _title: string
@@ -70,6 +70,7 @@ export class CreateWebview {
   }
 
   public async create(html = this._html, callback: (data: any) => void = () => { }) {
+    const oldPanel = this.webviewView
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
       this._title, // 选项卡标题
@@ -80,16 +81,24 @@ export class CreateWebview {
         retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
-    this.webviewView?.dispose()
+
+    try {
+      webviewView.webview.html = await this._getHtmlForWebview(
+        webviewView.webview,
+        html,
+      )
+    }
+    catch (error) {
+      webviewView.dispose()
+      throw error
+    }
+
+    oldPanel?.dispose()
     this.webviewView = webviewView
     webviewView.onDidDispose(() => {
       if (this.webviewView === webviewView)
         this.webviewView = undefined
     })
-    webviewView.webview.html = await this._getHtmlForWebview(
-      webviewView.webview,
-      html,
-    )
     webviewView.webview.onDidReceiveMessage((data: any) => {
       callback(data)
       this.onMessage && this.onMessage(data)
@@ -99,6 +108,10 @@ export class CreateWebview {
   public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
     const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(this._extensionUri, htmlUrl))
     const html = Buffer.from(bytes).toString('utf8')
+    if (this._hasCspMeta(html))
+      throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+
+    const oldPanel = this.webviewView
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
       this._title, // 选项卡标题
@@ -109,20 +122,28 @@ export class CreateWebview {
         retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
-    this.webviewView?.dispose()
+
+    try {
+      const content = await this._getWebviewContent(webviewView.webview)
+      const renderedHtml = this._injectHeadContent(
+        html.replace(/(?:src|href)="([/.][^"]*)"/g, (_, u) => _.replace(u, webviewView.webview.asWebviewUri(
+          this._getMediaUri(u),
+        ).toString())),
+        content.head,
+      )
+      webviewView.webview.html = this._injectBodyEndContent(renderedHtml, content.bodyEnd)
+    }
+    catch (error) {
+      webviewView.dispose()
+      throw error
+    }
+
+    oldPanel?.dispose()
     this.webviewView = webviewView
     webviewView.onDidDispose(() => {
       if (this.webviewView === webviewView)
         this.webviewView = undefined
     })
-    const content = await this._getWebviewContent(webviewView.webview)
-    webviewView.webview.html = this._injectHeadContent(
-      html.replace(/(?:src|href)="([/.][^"]*)"/g, (_, u) => _.replace(u, webviewView.webview.asWebviewUri(
-        this._getMediaUri(u),
-      ).toString())),
-      content.head,
-    )
-    webviewView.webview.html = this._injectBodyEndContent(webviewView.webview.html, content.bodyEnd)
     webviewView.webview.onDidReceiveMessage((data: any) => {
       callback(data)
       this.onMessage && this.onMessage(data)
@@ -157,10 +178,7 @@ export class CreateWebview {
 
   public deferScriptUri(scriptUri: string | string[]) {
     const uris = typeof scriptUri === 'string' ? [scriptUri] : scriptUri
-    this.scriptsPromises.push(...uris.map(async (uri) => {
-      const bytes = await vscode.workspace.fs.readFile(this._getMediaUri(uri))
-      return Buffer.from(bytes).toString('utf8')
-    }))
+    this.deferredScriptUris.push(...uris)
   }
 
   public async postMessage(data: any) {
@@ -212,24 +230,27 @@ export class CreateWebview {
       if (!script)
         return
 
+      if (script.trim().startsWith('<script'))
+        throw new Error('Use script paths/URLs in options.scripts; use deferScript for inline scripts.')
+
       this._assertExternalResourceAllowed('script', script, this.allowedScriptSources)
       const scriptUri = this._isExternalUri(script)
         ? script
         : webview.asWebviewUri(
           this._getMediaUri(script),
         )
-      const _script = script.trim().startsWith('<script')
-        ? this._renderInlineScript(script, nonce)
-        : `<script src="${this._escapeHtmlAttribute(scriptUri.toString())}"></script>`
+      const _script = `<script src="${this._escapeHtmlAttribute(scriptUri.toString())}"></script>`
 
       if (isPre)
         preScripts.push(_script)
       else
         postScripts.push(_script)
     })
-    const scriptsUri = await Promise.all(this.scriptsPromises).then(scripts =>
-      scripts.map(script => this._renderInlineScript(script, nonce)),
-    )
+    const scriptsUri = this.deferredScriptUris
+      .map((uri) => {
+        const src = webview.asWebviewUri(this._getMediaUri(uri)).toString()
+        return `<script src="${this._escapeHtmlAttribute(src)}"></script>`
+      })
 
     return {
       head: `${this._getCspMeta(webview, nonce)}
@@ -299,6 +320,10 @@ export class CreateWebview {
       : `${html}\n${content}`
   }
 
+  private _hasCspMeta(html: string) {
+    return /<meta[^>]+http-equiv=["']Content-Security-Policy["']/i.test(html)
+  }
+
   private _assertExternalResourceAllowed(kind: 'script' | 'style', uri: string, allowedSources: string[]) {
     if (this.csp || !this._isExternalUri(uri) || this._isAllowedExternalResource(uri, allowedSources))
       return
@@ -314,11 +339,17 @@ export class CreateWebview {
     const parsed = new URL(uri)
 
     return allowedSources.some((source) => {
-      if (source === '*' || source.includes('*'))
+      if (source === '*')
         return true
 
       if (source === parsed.protocol || source === parsed.origin || source === uri)
         return true
+
+      const wildcardSource = source.match(/^(https?:)\/\/\*\.(.+)$/)
+      if (wildcardSource) {
+        const [, protocol, hostname] = wildcardSource
+        return parsed.protocol === protocol && parsed.hostname.endsWith(`.${hostname.replace(/\/$/, '')}`)
+      }
 
       if (!this._isExternalUri(source))
         return false
@@ -333,7 +364,7 @@ export class CreateWebview {
       return ''
 
     if (/^<script\b[^>]*\ssrc\s*=/i.test(script.trim()))
-      return script
+      throw new Error('deferScript only accepts inline scripts. Use deferScriptUri or options.scripts for script files.')
 
     return script.trim().startsWith('<script')
       ? script.replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)

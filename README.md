@@ -75,9 +75,13 @@ function activate(context: vscode.ExtensionContext) {
 
 Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote script/style entries that are not allowed by the default CSP will throw before rendering. Font sources allow VS Code webview resources, `https:`, and `data:` by default; add extra font/connect sources with `allowedFontSources` and `allowedConnectSources`.
 
+The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
+
 `createWithHTMLUrl` rewrites local `src` and `href` resources only when the attribute uses double quotes and the path starts with `./` or `/`, such as `src="./app.js"`. Bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
 
-`deferScriptUri` can load a browser-ready `.js` file under `media`. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
+HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP blocks inline `<script>`, inline `<style>`, and style attributes in HTML files unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
+
+`deferScriptUri` injects a browser-ready `.js` file from `media` as an external script. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
 
 The runtime exposes the VS Code API as `window.vscode`. Use `window.vscode.postMessage(...)` in your scripts, and do not call `acquireVsCodeApi()` again.
 
