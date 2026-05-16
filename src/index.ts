@@ -21,6 +21,7 @@ export interface Options {
 }
 export class CreateWebview {
   private webviewView?: vscode.WebviewPanel
+  private createRequestId = 0
   private _deferScript = ''
   private _extensionUri: vscode.Uri
   private props: Record<string, any> = {}
@@ -76,7 +77,7 @@ export class CreateWebview {
   }
 
   public async create(html = this._html, callback: (data: any) => void = () => { }) {
-    const oldPanel = this.webviewView
+    const requestId = ++this.createRequestId
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
       this._title, // 选项卡标题
@@ -99,7 +100,12 @@ export class CreateWebview {
       throw error
     }
 
-    oldPanel?.dispose()
+    if (requestId !== this.createRequestId) {
+      webviewView.dispose()
+      return
+    }
+
+    this.webviewView?.dispose()
     this.webviewView = webviewView
     webviewView.onDidDispose(() => {
       if (this.webviewView === webviewView)
@@ -112,12 +118,14 @@ export class CreateWebview {
   }
 
   public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
+    const requestId = ++this.createRequestId
     const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(this._extensionUri, htmlUrl))
     const html = Buffer.from(bytes).toString('utf8')
     if (this._hasCspMeta(html))
       throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+    if (requestId !== this.createRequestId)
+      return
 
-    const oldPanel = this.webviewView
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
       this._title, // 选项卡标题
@@ -145,7 +153,12 @@ export class CreateWebview {
       throw error
     }
 
-    oldPanel?.dispose()
+    if (requestId !== this.createRequestId) {
+      webviewView.dispose()
+      return
+    }
+
+    this.webviewView?.dispose()
     this.webviewView = webviewView
     webviewView.onDidDispose(() => {
       if (this.webviewView === webviewView)
@@ -337,7 +350,7 @@ export class CreateWebview {
   }
 
   private _hasCspMeta(html: string) {
-    return /<meta[^>]+http-equiv=["']Content-Security-Policy["']/i.test(html)
+    return /<meta\b[^>]*\bhttp-equiv\s*=\s*(?:"\s*content-security-policy\s*"|'\s*content-security-policy\s*'|content-security-policy\b)/i.test(html)
   }
 
   private _assertExternalResourceAllowed(kind: 'script' | 'style', uri: string, allowedSources: string[]) {

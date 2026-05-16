@@ -293,6 +293,92 @@ describe('CreateWebview', () => {
     await expect(provider.postMessage({ ok: false })).resolves.toBe(false)
   })
 
+  it('keeps the newest create call when renders finish out of order', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const firstPanel = createPanel()
+    const secondPanel = createPanel()
+    let resolveFirst!: (html: string) => void
+    let resolveSecond!: (html: string) => void
+    const firstRender = new Promise<string>((resolve) => {
+      resolveFirst = resolve
+    })
+    const secondRender = new Promise<string>((resolve) => {
+      resolveSecond = resolve
+    })
+    vscodeMock.window.createWebviewPanel
+      .mockReturnValueOnce(firstPanel)
+      .mockReturnValueOnce(secondPanel)
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    ;(provider as any)._getHtmlForWebview = vi.fn()
+      .mockReturnValueOnce(firstRender)
+      .mockReturnValueOnce(secondRender)
+
+    const firstCreate = provider.create('<div>one</div>')
+    const secondCreate = provider.create('<div>two</div>')
+    resolveSecond('<div>two</div>')
+    await secondCreate
+    resolveFirst('<div>one</div>')
+    await firstCreate
+
+    expect(firstPanel.dispose).toHaveBeenCalledTimes(1)
+    expect(secondPanel.dispose).not.toHaveBeenCalled()
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(true)
+    expect(secondPanel.webview.postMessage).toHaveBeenCalledWith({ ok: true })
+  })
+
+  it('keeps the newest createWithHTMLUrl call when renders finish out of order', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const firstPanel = createPanel()
+    const secondPanel = createPanel()
+    let resolveFirst!: (content: { head: string; bodyEnd: string }) => void
+    let resolveSecond!: (content: { head: string; bodyEnd: string }) => void
+    let markFirstStarted!: () => void
+    let markSecondStarted!: () => void
+    const firstRender = new Promise<{ head: string; bodyEnd: string }>((resolve) => {
+      resolveFirst = resolve
+    })
+    const secondRender = new Promise<{ head: string; bodyEnd: string }>((resolve) => {
+      resolveSecond = resolve
+    })
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve
+    })
+    const secondStarted = new Promise<void>((resolve) => {
+      markSecondStarted = resolve
+    })
+    vscodeMock.window.createWebviewPanel
+      .mockReturnValueOnce(firstPanel)
+      .mockReturnValueOnce(secondPanel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from('<html><head></head><body></body></html>'))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    ;(provider as any)._getWebviewContent = vi.fn()
+      .mockImplementationOnce(() => {
+        markFirstStarted()
+        return firstRender
+      })
+      .mockImplementationOnce(() => {
+        markSecondStarted()
+        return secondRender
+      })
+
+    const firstCreate = provider.createWithHTMLUrl('./src/webview/one.html')
+    await firstStarted
+    const secondCreate = provider.createWithHTMLUrl('./src/webview/two.html')
+    await secondStarted
+    resolveSecond({ head: '<meta name="second">', bodyEnd: '<script>second</script>' })
+    await secondCreate
+    resolveFirst({ head: '<meta name="first">', bodyEnd: '<script>first</script>' })
+    await firstCreate
+
+    expect(firstPanel.dispose).toHaveBeenCalledTimes(1)
+    expect(secondPanel.dispose).not.toHaveBeenCalled()
+    expect(secondPanel.webview.html).toContain('<meta name="second">')
+    expect(secondPanel.webview.html).toContain('<script>second</script>')
+    expect(secondPanel.webview.html).not.toContain('<meta name="first">')
+    await expect(provider.postMessage({ ok: true })).resolves.toBe(true)
+    expect(secondPanel.webview.postMessage).toHaveBeenCalledWith({ ok: true })
+  })
+
   it('keeps the previous panel when create rendering fails', async () => {
     const { CreateWebview } = await import('../src/index')
     const oldPanel = createPanel()
@@ -425,6 +511,23 @@ describe('CreateWebview', () => {
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
     await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+    expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
+  })
+
+  it('rejects html urls with CSP meta using whitespace, reordered, or unquoted attributes', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    const htmlCases = [
+      '<meta http-equiv = "Content-Security-Policy" content="default-src none">',
+      '<meta content="default-src none" http-equiv=\'content-security-policy\'>',
+      '<meta http-equiv=Content-Security-Policy content="default-src none">',
+    ]
+
+    for (const html of htmlCases) {
+      vscodeMock.workspace.fs.readFile.mockResolvedValueOnce(Buffer.from(html))
+
+      await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+    }
     expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
   })
 
