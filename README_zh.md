@@ -6,72 +6,79 @@
 1分钟让你打造一个webview的vscode插件
 
 ### Install
+
 ```
 npm i @vscode-use/createwebview
 ```
 
 ## Usage1
 
-```code
+```ts
 function activate(context: vscode.ExtensionContext) {
-  const provider = new CreateWebview(
-    context.extensionUri,
-    {
-      title: 'Daily planner', // webview打开的tab页标题
-      scripts: ['https://unpkg.com/vue@2/dist/vue.js', 'https://unpkg.com/element-ui/lib/index.js'], // js文件引入，本地js需要配置在media目录下
-      styles: ['reset.css', 'https://unpkg.com/element-ui/lib/theme-chalk/index.css', 'main.css']
-    }
-  ) // css样式引入，本地css需要配置在media目录下
-}
+  const provider = new CreateWebview(context, {
+    viewType: 'dailyPlanner',
+    title: 'Daily planner',
+    scripts: ['https://unpkg.com/vue@2/dist/vue.js', 'https://unpkg.com/element-ui/lib/index.js'],
+    styles: ['reset.css', 'https://unpkg.com/element-ui/lib/theme-chalk/index.css', 'main.css'],
+    allowedScriptSources: ['https://unpkg.com'],
+    allowedStyleSources: ['https://unpkg.com'],
+  })
 
-  const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', () => {
-    provider.create(`
-    <div id="app">
-      <div>Hello, World</div>
-    </div>
-    `, (data)=>{
+  const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', async () => {
+    await provider.create(`
+      <div id="app">
+        <div>Hello, World</div>
+      </div>
+    `, (data) => {
       // callback 获取js层的postMessage数据
     })
   })
+
+  context.subscriptions.push(viewTodoDisposable)
+}
 ```
 
 ## Usage2
 
-```code
+```ts
 function activate(context: vscode.ExtensionContext) {
-  const provider = new CreateWebview(
-    context.extensionUri,
-    {
-      title: 'Daily planner', // webview打开的tab页标题
-      scripts: [],
-      styles: []
-    }
-  )
-}
+  const provider = new CreateWebview(context, {
+    viewType: 'dailyPlanner',
+    title: 'Daily planner',
+  })
 
-  const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', () => {
+  const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', async () => {
     // 基于根目录的相对路径
     // html 中本地径资源(href="" | src="")需要使用相对路径, 并且放到根目录的 media 文件夹下
-    provider.createWithHTMLUrl('./src/webview/index.html', (data)=>{
+    await provider.createWithHTMLUrl('./src/webview/index.html', (data) => {
       // callback 获取js层的postMessage数据
     })
   })
+
+  context.subscriptions.push(viewTodoDisposable)
+}
 ```
 
 ## Api
 
 - provider.isActive ***检测当前 webview 是否已经打开***
 - provider.create ***创建 webview***
-- provider.destory ***销毁关闭 webview***
+- provider.createWithHTMLUrl ***通过 HTML 文件创建 webview***
+- provider.destroy ***销毁关闭 webview***
+- provider.destory ***destroy 的旧拼写别名***
 - provider.deferScript ***默认 js 是加载在 body 的后面,deferScript 会在默认的 js 之后注入，并且为了解决一些默认数据渲染的问题，支持'<script>xxx</script>'***
+- provider.deferScriptUri ***从 media 目录加载延迟脚本***
+- provider.setProps ***设置可在延迟脚本中通过 window.__WEBVIEW_PROPS__ 读取的参数***
 - provider.postMessage ***向js层发送消息***
 
 ## Feature
-之前脚本使用字符串的方式插入体验不好,现在暴露了deferScriptUri的方式传入media下的.ts或者.js路径，就可以写js了，传惨需要提前通过setProps的方式，然后js中可以通过webviewThis获取到参数, webviewThis会在最终render被替换成setProps的参数
 
-```code
-const vscode = acquireVsCodeApi()
-const { name, age } = webviewThis
+本地 scripts 和 styles 都会从扩展的 `media` 目录解析。webview 默认会注入 CSP，所以远程 script/style 来源需要通过 `allowedScriptSources` 和 `allowedStyleSources` 显式声明，或者传入自定义 `csp`。
+
+`deferScriptUri` 可以加载 `media` 下的 `.ts` 或 `.js` 文件。渲染前先调用 `setProps`，脚本里通过 `window.__WEBVIEW_PROPS__` 读取参数。
+
+```ts
+const { name, age } = window.__WEBVIEW_PROPS__
 const App = {
   data() {
     return {
@@ -81,7 +88,6 @@ const App = {
   },
 }
 new Vue(App).$mount('#app')
-
 ```
 
 ## Cases
@@ -93,4 +99,3 @@ new Vue(App).$mount('#app')
 [MIT](./LICENSE) License © 2022 [Simon He](https://github.com/Simon-He95)
 
 <a href="https://github.com/Simon-He95/sponsor" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important;" ></a>
-
