@@ -119,12 +119,13 @@ export class CreateWebview {
 
   public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
     const requestId = ++this.createRequestId
-    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(this._extensionUri, htmlUrl))
+    const bytes = await vscode.workspace.fs.readFile(this._getExtensionFileUri(htmlUrl))
+    if (requestId !== this.createRequestId)
+      return
+
     const html = Buffer.from(bytes).toString('utf8')
     if (this._hasCspMeta(html))
       throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
-    if (requestId !== this.createRequestId)
-      return
 
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
@@ -214,12 +215,12 @@ export class CreateWebview {
           <meta charset="UTF-8">
           ${content.head}
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${this._title}</title>
+          <title>${this._escapeHtmlText(this._title)}</title>
         </head>
         <body>
           ${html}
+          ${content.bodyEnd}
         </body>
-        ${content.bodyEnd}
 			</html>`
   }
 
@@ -300,6 +301,14 @@ export class CreateWebview {
       throw new Error(`Invalid media path: ${uri}`)
 
     return vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
+  }
+
+  private _getExtensionFileUri(uri: string) {
+    const normalized = uri.replace(/^\/+/, '').replace(/^\.\/+/, '')
+    if (normalized.split('/').includes('..'))
+      throw new Error(`Invalid extension file path: ${uri}`)
+
+    return vscode.Uri.joinPath(this._extensionUri, normalized)
   }
 
   private _getNonce() {
@@ -395,9 +404,19 @@ export class CreateWebview {
     if (/^<script\b[^>]*\ssrc\s*=/i.test(script.trim()))
       throw new Error('deferScript only accepts inline scripts. Use deferScriptUri or options.scripts for script files.')
 
+    if (/<script\b[^>]*\snonce\s*=/i.test(script))
+      throw new Error('deferScript should not include nonce; createwebview injects it automatically.')
+
     return script.trim().startsWith('<script')
       ? script.replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)
       : `<script nonce="${nonce}">${script}</script>`
+  }
+
+  private _escapeHtmlText(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
   }
 
   private _escapeHtmlAttribute(value: string) {
