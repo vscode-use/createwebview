@@ -862,6 +862,31 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="webview:/extension/media/app.js"></script>')
   })
 
+  it('accepts interface props without string index signatures', async () => {
+    interface User {
+      name: string
+    }
+
+    interface WebviewProps {
+      user: User
+      tags: string[]
+    }
+
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview<unknown, WebviewProps>(context as any, {
+      title: 'Test',
+    })
+
+    provider.setProps({
+      user: { name: 'Ada' },
+      tags: ['vscode'],
+    })
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('window.__WEBVIEW_PROPS__ = {"user":{"name":"Ada"},"tags":["vscode"]}')
+  })
+
   it('can set add and clear deferred script uris explicitly', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })

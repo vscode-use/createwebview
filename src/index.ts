@@ -1,8 +1,19 @@
 import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+type JsonPrimitive = string | number | boolean | null
+
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 export type JsonProps = Record<string, JsonValue>
+type JsonSerializable<T> = T extends JsonPrimitive
+  ? T
+  : T extends (...args: any[]) => any
+    ? never
+    : T extends readonly (infer U)[]
+      ? JsonSerializable<U>[]
+      : T extends object
+        ? { [K in keyof T]: JsonSerializable<T[K]> }
+        : never
 
 export interface Options<TMessage = unknown> {
   viewType?: string
@@ -41,14 +52,14 @@ interface ParsedHtmlAttribute {
   valueEnd: number
 }
 
-export class CreateWebview<TMessage = unknown, TProps extends JsonProps = JsonProps> {
+export class CreateWebview<TMessage = unknown, TProps extends object = JsonProps> {
   private webviewView?: vscode.WebviewPanel
   private createRequestId = 0
   private _deferScript = ''
   private _extensionUri: vscode.Uri
   private mediaRoot: string
   private localResourceRoots: vscode.Uri[]
-  private props: Partial<TProps> = {}
+  private props: Partial<JsonSerializable<TProps>> = {}
   private deferredScriptUris: string[] = []
   private viewColumn: vscode.ViewColumn
   private _viewType: string
@@ -128,7 +139,7 @@ export class CreateWebview<TMessage = unknown, TProps extends JsonProps = JsonPr
     }
   }
 
-  public setProps(props: Partial<TProps>) {
+  public setProps(props: Partial<JsonSerializable<TProps>>) {
     this.props = { ...this.props, ...props }
   }
 
