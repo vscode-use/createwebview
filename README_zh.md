@@ -66,7 +66,7 @@ function activate(context: vscode.ExtensionContext) {
 - provider.createWithHTMLUrl ***通过 HTML 文件创建 webview***
 - provider.destroy ***销毁关闭 webview***
 - provider.destory ***destroy 的旧拼写别名***
-- provider.deferScript ***在默认脚本之后注入可信内联 JavaScript。推荐只传 JavaScript 源码；外部脚本请使用 scripts 或 deferScriptUri。***
+- provider.deferScript ***在默认脚本之后注入可信内联 JavaScript 源码；外部脚本请使用 scripts 或 deferScriptUri。***
 - provider.deferScriptUri ***从 media 目录加载延迟脚本***
 - provider.setProps ***设置可在延迟脚本中通过 window.__WEBVIEW_PROPS__ 读取的参数***
 - provider.postMessage ***向js层发送消息***
@@ -81,7 +81,7 @@ function activate(context: vscode.ExtensionContext) {
 
 传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会作用于 `create(html)` 和 `createWithHTMLUrl(htmlUrl)` 渲染出的最终 HTML，所以内联 `<script>`、内联 `<style>` 和 style attributes 默认会被阻止，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts` 或 `deferScriptUri` 引入，或者通过 `csp` 明确放开。
 
-如果 HTML 文件已经包含 CSP meta 标签，`createWithHTMLUrl` 默认会拒绝渲染。设置 `existingCsp: 'replace'` 可以移除已有标签并注入 createwebview 的运行时 CSP；设置 `existingCsp: 'preserve'` 可以保留已有标签并跳过运行时 CSP 注入。
+如果 HTML 文件已经包含 CSP meta 标签，`createWithHTMLUrl` 默认会拒绝渲染。设置 `existingCsp: 'replace'` 可以移除已有标签并注入 createwebview 的运行时 CSP。
 
 传入自定义 `csp` 时，请包含 `${nonce}` 以允许运行时内联脚本，并包含 `${webview.cspSource}` 以允许本地 webview 资源：
 

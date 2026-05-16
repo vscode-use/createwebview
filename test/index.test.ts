@@ -953,24 +953,18 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('webview:/extension/media/app.js')
   })
 
-  it('preserves existing html url CSP meta when configured', async () => {
+  it('rejects legacy preserve mode for existing html url CSP meta', async () => {
     const { CreateWebview } = await import('../src/index')
-    const panel = createPanel()
-    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
     vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
       '<html><head><meta http-equiv="Content-Security-Policy" content="script-src https://existing.example"><script src="./app.js"></script></head><body></body></html>',
     ))
     const provider = new CreateWebview(context as any, {
       title: 'Test',
-      existingCsp: 'preserve',
+      existingCsp: 'preserve' as any,
     })
 
-    await provider.createWithHTMLUrl('./src/webview/index.html')
-
-    expect(panel.webview.html).toContain('script-src https://existing.example')
-    expect(panel.webview.html.match(/http-equiv="Content-Security-Policy"/g)).toHaveLength(1)
-    expect(panel.webview.html).not.toContain('base-uri')
-    expect(panel.webview.html).toContain('webview:/extension/media/app.js')
+    await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
+    expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
   })
 
   it('injects html url CSP before existing head resources', async () => {
@@ -1060,32 +1054,33 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('const value = "$& $1 $$"')
   })
 
-  it('rejects deferred inline scripts that include their own nonce', async () => {
+  it('escapes closing script tags in deferred JavaScript source', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
-    provider.deferScript('<script nonce="old">window.inline = true</script>')
+    provider.deferScript('const html = "</script><img src=x onerror=alert(1)>"')
 
-    await expect(renderHtml(provider)).rejects.toThrow('deferScript should not include nonce; createwebview injects it automatically.')
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('const html = "<\\/script><img src=x onerror=alert(1)>"')
+    expect(html).not.toContain('const html = "</script><img src=x onerror=alert(1)>"')
   })
 
-  it('rejects deferred inline scripts that include a later external script tag', async () => {
+  it('rejects deferred inline script wrappers', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
-    provider.deferScript('<script>window.inline = true</script>\n<script src="https://evil.example/app.js"></script>')
+    provider.deferScript('<script>window.inline = true</script>')
 
-    await expect(renderHtml(provider)).rejects.toThrow('deferScript only accepts inline scripts. Use deferScriptUri or options.scripts for script files.')
+    await expect(renderHtml(provider)).rejects.toThrow('deferScript accepts JavaScript source only. Use deferScriptUri or options.scripts for script files.')
   })
 
-  it('adds a nonce to uppercase deferred inline script tags', async () => {
+  it('rejects uppercase deferred inline script wrappers', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
     provider.deferScript('<SCRIPT>window.inline = true</SCRIPT>')
 
-    const html = await renderHtml(provider)
-
-    expect(html).toMatch(/<script nonce="[^"]+">window\.inline = true<\/SCRIPT>/)
+    await expect(renderHtml(provider)).rejects.toThrow('deferScript accepts JavaScript source only. Use deferScriptUri or options.scripts for script files.')
   })
 })

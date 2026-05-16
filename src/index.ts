@@ -21,7 +21,7 @@ export interface Options {
   allowedWorkerSources?: string[]
   allowedPrefetchSources?: string[]
   csp?: string
-  existingCsp?: 'error' | 'replace' | 'preserve'
+  existingCsp?: 'error' | 'replace'
   html?: string
   exposeVsCodeApi?: boolean | string
 }
@@ -51,7 +51,7 @@ export class CreateWebview {
   private allowedWorkerSources: string[]
   private allowedPrefetchSources: string[]
   private csp?: string
-  private existingCsp: 'error' | 'replace' | 'preserve'
+  private existingCsp: 'error' | 'replace'
   private onMessage?: (data: any) => void
   private exposeVsCodeApi?: string
   constructor(
@@ -165,10 +165,9 @@ export class CreateWebview {
     let html = Buffer.from(bytes).toString('utf8')
     const hasExistingCsp = this._hasCspMeta(html)
     if (hasExistingCsp) {
-      if (this.existingCsp === 'error')
+      if (this.existingCsp !== 'replace')
         throw new Error('createWithHTMLUrl received HTML with an existing CSP meta. Remove it before rendering.')
-      if (this.existingCsp === 'replace')
-        html = this._removeCspMeta(html)
+      html = this._removeCspMeta(html)
     }
 
     const webviewView = vscode.window.createWebviewPanel(
@@ -183,9 +182,7 @@ export class CreateWebview {
     )
 
     try {
-      const content = await this._getWebviewContent(webviewView.webview, {
-        includeCsp: !(hasExistingCsp && this.existingCsp === 'preserve'),
-      })
+      const content = await this._getWebviewContent(webviewView.webview)
       if (requestId !== this.createRequestId) {
         webviewView.dispose()
         return
@@ -272,8 +269,7 @@ export class CreateWebview {
 			</html>`
   }
 
-  private async _getWebviewContent(webview: vscode.Webview, options: { includeCsp?: boolean } = {}) {
-    const includeCsp = options.includeCsp ?? true
+  private async _getWebviewContent(webview: vscode.Webview) {
     const nonce = this._getNonce()
     const styles = this._styles
       .filter(Boolean)
@@ -291,7 +287,7 @@ export class CreateWebview {
 
     if (!this.enableScripts) {
       return {
-        head: `${includeCsp ? this._getCspMeta(webview, nonce) : ''}
+        head: `${this._getCspMeta(webview, nonce)}
           ${styles}`,
         bodyEnd: '',
       }
@@ -344,7 +340,7 @@ export class CreateWebview {
     }
 
     return {
-      head: `${includeCsp ? this._getCspMeta(webview, nonce) : ''}
+      head: `${this._getCspMeta(webview, nonce)}
           ${styles}
           ${vscodeApiScript}
           <script nonce="${nonce}">
@@ -593,15 +589,14 @@ export class CreateWebview {
     if (!script)
       return ''
 
-    if (/<script\b[^>]*\ssrc\s*=/i.test(script))
-      throw new Error('deferScript only accepts inline scripts. Use deferScriptUri or options.scripts for script files.')
+    if (/^<script\b/i.test(script.trim()))
+      throw new Error('deferScript accepts JavaScript source only. Use deferScriptUri or options.scripts for script files.')
 
-    if (/<script\b[^>]*\snonce\s*=/i.test(script))
-      throw new Error('deferScript should not include nonce; createwebview injects it automatically.')
+    return `<script nonce="${nonce}">${this._escapeInlineScriptContent(script)}</script>`
+  }
 
-    return /^<script\b/i.test(script.trim())
-      ? script.replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)
-      : `<script nonce="${nonce}">${script}</script>`
+  private _escapeInlineScriptContent(source: string) {
+    return source.replace(/<\/script/gi, '<\\/script')
   }
 
   private _escapeHtmlText(value: string) {

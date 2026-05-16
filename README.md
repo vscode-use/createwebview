@@ -66,7 +66,7 @@ function activate(context: vscode.ExtensionContext) {
 - provider.createWithHTMLUrl ***Create a webview from an HTML file***
 - provider.destroy ***Destroy Close the webview***
 - provider.destory ***Deprecated alias of destroy***
-- provider.deferScript ***Inject trusted inline JavaScript after the default scripts. Prefer passing JavaScript source only; external scripts should use scripts or deferScriptUri.***
+- provider.deferScript ***Inject trusted inline JavaScript source after the default scripts. External scripts should use scripts or deferScriptUri.***
 - provider.deferScriptUri ***Load a deferred script from the media directory***
 - provider.setProps ***Set props available as window.__WEBVIEW_PROPS__ in deferred scripts***
 - provider.postMessage ***Send a message to the js layer***
@@ -81,7 +81,7 @@ The `scripts` option accepts script paths or URLs only. Use `deferScript` for in
 
 HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
 
-If an HTML file already includes a CSP meta tag, `createWithHTMLUrl` rejects it by default. Set `existingCsp: 'replace'` to remove the existing tag and inject createwebview's runtime CSP, or `existingCsp: 'preserve'` to keep the existing tag and skip runtime CSP injection.
+If an HTML file already includes a CSP meta tag, `createWithHTMLUrl` rejects it by default. Set `existingCsp: 'replace'` to remove the existing tag and inject createwebview's runtime CSP.
 
 When providing a custom `csp`, include `${nonce}` for runtime inline scripts and `${webview.cspSource}` for local webview resources:
 
