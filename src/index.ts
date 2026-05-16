@@ -597,7 +597,7 @@ ${html}
             index = closingStyleTag.end
           }
         }
-        else if (['script', 'textarea', 'title'].includes(tagName)) {
+        else if (['script', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes'].includes(tagName)) {
           const closingTag = this._findHtmlClosingTag(html, index, tagName)
           if (!closingTag)
             return output + html.slice(index)
@@ -966,7 +966,18 @@ ${html}
   }
 
   private _serializeForInlineScript(value: unknown) {
-    return JSON.stringify(value)
+    let json: string | undefined
+    try {
+      json = JSON.stringify(value)
+    }
+    catch {
+      throw new Error('setProps accepts JSON-serializable values only.')
+    }
+
+    if (json === undefined)
+      throw new Error('setProps accepts JSON-serializable values only.')
+
+    return json
       .replace(/</g, '\\u003c')
       .replace(/>/g, '\\u003e')
       .replace(/&/g, '\\u0026')

@@ -934,6 +934,20 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e')
   })
 
+  it('rejects props that cannot be JSON serialized', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const bigIntProvider = new CreateWebview(context as any, { title: 'Test' })
+    const circularProvider = new CreateWebview(context as any, { title: 'Test' })
+    const circularProps: Record<string, unknown> = {}
+    circularProps.self = circularProps
+
+    bigIntProvider.setProps({ count: BigInt(1) } as any)
+    circularProvider.setProps(circularProps as any)
+
+    await expect(renderHtml(bigIntProvider)).rejects.toThrow('setProps accepts JSON-serializable values only.')
+    await expect(renderHtml(circularProvider)).rejects.toThrow('setProps accepts JSON-serializable values only.')
+  })
+
   it('rejects media paths containing parent directory segments', async () => {
     const { CreateWebview } = await import('../src/index')
     const scriptProvider = new CreateWebview(context as any, {
@@ -1058,7 +1072,7 @@ describe('CreateWebview', () => {
     const panel = createPanel()
     vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
     vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
-      '<html><head><title><img src="./title.png"></title><script>const tpl = \'<img src="./template.png">\'</script></head><body><textarea><img src="./field.png"></textarea><img src="./real.png"></body></html>',
+      '<html><head><title><img src="./title.png"></title><script>const tpl = \'<img src="./template.png">\'</script></head><body><textarea><img src="./field.png"></textarea><xmp><img src="./xmp.png"></xmp><iframe src="./frame.html"><img src="./frame-fallback.png"></iframe><noembed><img src="./noembed.png"></noembed><noframes><img src="./noframes.png"></noframes><img src="./real.png"></body></html>',
     ))
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
@@ -1067,10 +1081,18 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('<title><img src="./title.png"></title>')
     expect(panel.webview.html).toContain('const tpl = \'<img src="./template.png">\'')
     expect(panel.webview.html).toContain('<textarea><img src="./field.png"></textarea>')
+    expect(panel.webview.html).toContain('<xmp><img src="./xmp.png"></xmp>')
+    expect(panel.webview.html).toContain('<iframe src="webview:/extension/media/frame.html"><img src="./frame-fallback.png"></iframe>')
+    expect(panel.webview.html).toContain('<noembed><img src="./noembed.png"></noembed>')
+    expect(panel.webview.html).toContain('<noframes><img src="./noframes.png"></noframes>')
     expect(panel.webview.html).toContain('src="webview:/extension/media/real.png"')
     expect(panel.webview.html).not.toContain('webview:/extension/media/title.png')
     expect(panel.webview.html).not.toContain('webview:/extension/media/template.png')
     expect(panel.webview.html).not.toContain('webview:/extension/media/field.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/xmp.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/frame-fallback.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/noembed.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/noframes.png')
   })
 
   it('rejects path traversal in html url resource attributes', async () => {

@@ -91,7 +91,7 @@ The `scripts` option accepts script paths or URLs only. Use `deferScript` for in
 
 Each `CreateWebview` instance manages one panel. A later successful `create` or `createWithHTMLUrl` call disposes the previous panel.
 
-`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons. It supports double-quoted, single-quoted, and unquoted attributes; paths may start with `./`, a single `/`, or use a bare relative filename such as `src="app.js"`. It also rewrites local `srcset` entries on `img` and `source`, plus local CSS `url(...)` references in inline `style` attributes and `<style>` tags. It does not parse or rewrite raw text inside `script`, `textarea`, or `title` elements. Normal links such as `a href`, `base href`, and canonical links are not rewritten. External URLs and protocol-relative URLs like `src="//cdn.example.com/app.js"` are not rewritten. CSS files loaded through `link` are not parsed.
+`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons. It supports double-quoted, single-quoted, and unquoted attributes; paths may start with `./`, a single `/`, or use a bare relative filename such as `src="app.js"`. It also rewrites local `srcset` entries on `img` and `source`, plus local CSS `url(...)` references in inline `style` attributes and `<style>` tags. It does not parse or rewrite raw text inside `script`, `textarea`, `title`, `xmp`, `iframe`, `noembed`, or `noframes` elements. Normal links such as `a href`, `base href`, and canonical links are not rewritten. External URLs and protocol-relative URLs like `src="//cdn.example.com/app.js"` are not rewritten. CSS files loaded through `link` are not parsed.
 
 HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts`, `setDeferredScriptUris`, or `addDeferredScriptUris`, or explicitly relax the policy with `csp`.
 
@@ -158,6 +158,8 @@ This release includes breaking behavior changes and should be published as `0.1.
 - `deferScriptUri` now injects an external script from `media` instead of reading and inlining a file. Prefer `setDeferredScriptUris` or `addDeferredScriptUris` for new code.
 - Props are available as `window.__WEBVIEW_PROPS__` instead of `webviewThis`.
 - The VS Code API is no longer exposed as `window.vscode` by default. Use `acquireVsCodeApi()` inside trusted scripts, or opt in with `exposeVsCodeApi`.
+- `viewType` now defaults to `createwebview.panel`; pass an explicit stable id if you relied on the title-derived default.
+- `setProps` is typed as JSON-serializable values.
 
 ## Cases
 - [vscode icones](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-icones)

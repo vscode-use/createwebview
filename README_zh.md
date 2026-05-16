@@ -91,7 +91,7 @@ HTML 文件中已有的远程资源会保留原样，是否允许加载由注入
 
 每个 `CreateWebview` 实例只维护一个 panel。后续成功执行的 `create` 或 `createWithHTMLUrl` 会 dispose 上一个 panel。
 
-`createWithHTMLUrl` 会重写 `script`、`img`、`source`、`video`、`audio`、`track`、`iframe` 上的本地 `src`，以及 stylesheet、icon 等资源型 `link href`。属性可以使用双引号、单引号或不加引号；路径可以以 `./`、单个 `/` 开头，也可以使用 `src="app.js"` 这样的裸相对文件名。它也会重写 `img` 和 `source` 上的本地 `srcset` 项，以及 inline `style` 属性和 `<style>` 标签里的本地 CSS `url(...)`。它不会解析或重写 `script`、`textarea`、`title` 元素 raw text 内部的伪标签。`a href`、`base href`、canonical link 等普通链接不会被重写。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL 和外部 URL 不会被重写。通过 `link` 加载的 CSS 文件不会被解析。
+`createWithHTMLUrl` 会重写 `script`、`img`、`source`、`video`、`audio`、`track`、`iframe` 上的本地 `src`，以及 stylesheet、icon 等资源型 `link href`。属性可以使用双引号、单引号或不加引号；路径可以以 `./`、单个 `/` 开头，也可以使用 `src="app.js"` 这样的裸相对文件名。它也会重写 `img` 和 `source` 上的本地 `srcset` 项，以及 inline `style` 属性和 `<style>` 标签里的本地 CSS `url(...)`。它不会解析或重写 `script`、`textarea`、`title`、`xmp`、`iframe`、`noembed`、`noframes` 元素 raw text 内部的伪标签。`a href`、`base href`、canonical link 等普通链接不会被重写。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL 和外部 URL 不会被重写。通过 `link` 加载的 CSS 文件不会被解析。
 
 传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会作用于 `create(html)` 和 `createWithHTMLUrl(htmlUrl)` 渲染出的最终 HTML，所以内联 `<script>`、内联 `<style>` 和 style attributes 默认会被阻止，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts`、`setDeferredScriptUris` 或 `addDeferredScriptUris` 引入，或者通过 `csp` 明确放开。
 
@@ -158,6 +158,8 @@ await provider.postMessage({ type: 'init', payload: {} })
 - `deferScriptUri` 现在会从 `media` 注入外部脚本，不再读取文件并内联。新代码建议使用 `setDeferredScriptUris` 或 `addDeferredScriptUris`。
 - props 现在通过 `window.__WEBVIEW_PROPS__` 读取，不再是 `webviewThis`。
 - VS Code API 默认不再暴露为 `window.vscode`。在可信脚本里使用 `acquireVsCodeApi()`，或通过 `exposeVsCodeApi` 显式开启。
+- `viewType` 现在默认是 `createwebview.panel`；如果你依赖之前从 title 派生的默认值，请显式传入稳定 id。
+- `setProps` 现在按 JSON-serializable values 约束类型。
 
 ## Cases
 - [vscode icones](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-icones)
