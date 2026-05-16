@@ -1031,6 +1031,24 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toMatch(/^<!doctype html>\s*<html>\s*<head>\s*<meta http-equiv="Content-Security-Policy"/)
     expect(panel.webview.html.indexOf('<html>')).toBeGreaterThan(panel.webview.html.indexOf('<!doctype html>'))
     expect(panel.webview.html.indexOf('<head>')).toBeLessThan(panel.webview.html.indexOf('<body>'))
+    expect(panel.webview.html.match(/<body\b/g)).toHaveLength(1)
+    expect(panel.webview.html).toMatch(/<\/body>\s*<\/html>$/)
+  })
+
+  it('wraps html url fragments in a complete document', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<main id="app"></main>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toMatch(/^<!DOCTYPE html>\s*<html lang="en">\s*<head>\s*<meta http-equiv="Content-Security-Policy"/)
+    expect(panel.webview.html).toContain('<body>\n<main id="app"></main>')
+    expect(panel.webview.html).toMatch(/<\/body>\s*<\/html>$/)
   })
 
   it('applies configured styles and scripts when loading html urls', async () => {

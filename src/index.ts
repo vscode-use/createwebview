@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 
 export interface Options {
@@ -391,10 +392,7 @@ export class CreateWebview {
   }
 
   private _getNonce() {
-    const bytes = new Uint8Array(16)
-    const webCrypto = (globalThis as typeof globalThis & { crypto: { getRandomValues: (array: Uint8Array) => Uint8Array } }).crypto
-    webCrypto.getRandomValues(bytes)
-    return btoa(String.fromCharCode(...bytes))
+    return randomBytes(16).toString('base64')
   }
 
   private _getCspMeta(webview: vscode.Webview, nonce: string) {
@@ -448,10 +446,24 @@ export class CreateWebview {
     if (/<html\b[^>]*>/i.test(html))
       return html.replace(/<html\b[^>]*>/i, match => `${match}\n<head>\n${content}\n</head>`)
 
-    if (/^\s*<!doctype\b[^>]*>/i.test(html))
-      return html.replace(/^\s*<!doctype\b[^>]*>/i, match => `${match}\n<html>\n<head>\n${content}\n</head>\n`)
+    const doctypeMatch = html.match(/^(\s*<!doctype\b[^>]*>)([\s\S]*)$/i)
+    if (doctypeMatch) {
+      const [, doctype, rest] = doctypeMatch
+      if (/<body\b[^>]*>/i.test(rest))
+        return `${doctype}\n<html>\n<head>\n${content}\n</head>${rest}\n</html>`
 
-    return `<head>\n${content}\n</head>\n${html}`
+      return `${doctype}\n<html>\n<head>\n${content}\n</head>\n<body>${rest}\n</body>\n</html>`
+    }
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+${content}
+</head>
+<body>
+${html}
+</body>
+</html>`
   }
 
   private _injectBodyEndContent(html: string, content: string) {
