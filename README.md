@@ -66,7 +66,7 @@ function activate(context: vscode.ExtensionContext) {
 - provider.createWithHTMLUrl ***Create a webview from an HTML file***
 - provider.destroy ***Destroy Close the webview***
 - provider.destory ***Deprecated alias of destroy***
-- provider.deferScript ***The default js is loaded at the back of the body,defer script is injected after the default js, and in order to solve some problems with default data rendering, support is supported'<script>xxx</script>'***
+- provider.deferScript ***Inject trusted inline JavaScript after the default scripts. Prefer passing JavaScript source only; external scripts should use scripts or deferScriptUri.***
 - provider.deferScriptUri ***Load a deferred script from the media directory***
 - provider.setProps ***Set props available as window.__WEBVIEW_PROPS__ in deferred scripts***
 - provider.postMessage ***Send a message to the js layer***

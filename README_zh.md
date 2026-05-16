@@ -66,7 +66,7 @@ function activate(context: vscode.ExtensionContext) {
 - provider.createWithHTMLUrl ***通过 HTML 文件创建 webview***
 - provider.destroy ***销毁关闭 webview***
 - provider.destory ***destroy 的旧拼写别名***
-- provider.deferScript ***默认 js 是加载在 body 的后面,deferScript 会在默认的 js 之后注入，并且为了解决一些默认数据渲染的问题，支持'<script>xxx</script>'***
+- provider.deferScript ***在默认脚本之后注入可信内联 JavaScript。推荐只传 JavaScript 源码；外部脚本请使用 scripts 或 deferScriptUri。***
 - provider.deferScriptUri ***从 media 目录加载延迟脚本***
 - provider.setProps ***设置可在延迟脚本中通过 window.__WEBVIEW_PROPS__ 读取的参数***
 - provider.postMessage ***向js层发送消息***

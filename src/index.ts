@@ -571,7 +571,7 @@ export class CreateWebview {
     if (!script)
       return ''
 
-    if (/^<script\b[^>]*\ssrc\s*=/i.test(script.trim()))
+    if (/<script\b[^>]*\ssrc\s*=/i.test(script))
       throw new Error('deferScript only accepts inline scripts. Use deferScriptUri or options.scripts for script files.')
 
     if (/<script\b[^>]*\snonce\s*=/i.test(script))

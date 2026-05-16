@@ -1015,6 +1015,15 @@ describe('CreateWebview', () => {
     await expect(renderHtml(provider)).rejects.toThrow('deferScript should not include nonce; createwebview injects it automatically.')
   })
 
+  it('rejects deferred inline scripts that include a later external script tag', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    provider.deferScript('<script>window.inline = true</script>\n<script src="https://evil.example/app.js"></script>')
+
+    await expect(renderHtml(provider)).rejects.toThrow('deferScript only accepts inline scripts. Use deferScriptUri or options.scripts for script files.')
+  })
+
   it('adds a nonce to uppercase deferred inline script tags', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
