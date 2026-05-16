@@ -77,16 +77,18 @@ Local scripts and styles are resolved from the extension `media` directory. Webv
 
 The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
 
-`createWithHTMLUrl` rewrites local `src` and `href` resources only when the attribute uses double quotes and the path starts with `./` or `/`, such as `src="./app.js"`. Bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
+`createWithHTMLUrl` rewrites local `src` and `href` resources only when the attribute uses double quotes and the path starts with `./` or a single `/`, such as `src="./app.js"`. Protocol-relative URLs like `src="//cdn.example.com/app.js"`, bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
 
 HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP blocks inline `<script>`, inline `<style>`, and style attributes in HTML files unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
 
 `deferScriptUri` injects a browser-ready `.js` file from `media` as an external script. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
 
-The runtime exposes the VS Code API as `window.vscode`. Use `window.vscode.postMessage(...)` in your scripts, and do not call `acquireVsCodeApi()` again.
+The runtime does not expose the VS Code API on `window` by default. Trusted webview scripts can call `acquireVsCodeApi()` directly. If you need the legacy global API, set `exposeVsCodeApi: true` for `window.vscode`, or pass a string such as `exposeVsCodeApi: 'editorApi'`.
 
 ```ts
 const { name, age } = window.__WEBVIEW_PROPS__
+const vscode = acquireVsCodeApi()
+vscode.postMessage({ type: 'ready' })
 const App = {
   data() {
     return {
@@ -97,6 +99,17 @@ const App = {
 }
 new Vue(App).$mount('#app')
 ```
+
+## Migration from 0.0.x
+
+This release includes breaking behavior changes and should be published as `0.1.0`.
+
+- `retainContextWhenHidden` now defaults to `false`.
+- Remote scripts and styles must be allowlisted with `allowedScriptSources` and `allowedStyleSources`, unless you provide a custom `csp`.
+- `scripts` accepts paths and URLs only. Use `deferScript` for inline JavaScript.
+- `deferScriptUri` now injects an external script from `media` instead of reading and inlining a file.
+- Props are available as `window.__WEBVIEW_PROPS__` instead of `webviewThis`.
+- The VS Code API is no longer exposed as `window.vscode` by default. Use `acquireVsCodeApi()` inside trusted scripts, or opt in with `exposeVsCodeApi`.
 
 ## Cases
 - [vscode icones](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-icones)

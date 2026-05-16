@@ -189,7 +189,25 @@ describe('CreateWebview', () => {
     expect(html).toContain('script-src \'nonce-')
     expect(html).toContain('https://cdn.example.com')
     expect(html).not.toContain('unsafe-inline')
-    expect(html).toMatch(/<script nonce="[^"]+">\s*if \(!window\.vscode\)\s*window\.vscode = acquireVsCodeApi\(\);/)
+    expect(html).not.toContain('acquireVsCodeApi')
+  })
+
+  it('exposes the VS Code API only when configured', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const namedProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      exposeVsCodeApi: 'editorApi',
+    })
+    const legacyProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      exposeVsCodeApi: true,
+    })
+
+    const namedHtml = await renderHtml(namedProvider)
+    const legacyHtml = await renderHtml(legacyProvider)
+
+    expect(namedHtml).toMatch(/if \(!window\["editorApi"\]\)\s*window\["editorApi"\] = acquireVsCodeApi\(\);/)
+    expect(legacyHtml).toMatch(/if \(!window\["vscode"\]\)\s*window\["vscode"\] = acquireVsCodeApi\(\);/)
   })
 
   it('replaces custom CSP placeholders', async () => {
@@ -378,7 +396,7 @@ describe('CreateWebview', () => {
     const panel = createPanel()
     vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
     vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
-      '<html><head></head><body><img src="./icon.png"><script src="/app.js"></script></body></html>',
+      '<html><head></head><body><img src="./icon.png"><script src="/app.js"></script><script src="//cdn.example.com/app.js"></script></body></html>',
     ))
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
@@ -391,10 +409,12 @@ describe('CreateWebview', () => {
       toString: expect.any(Function),
     })
     expect(panel.webview.html).toContain('http-equiv="Content-Security-Policy"')
-    expect(panel.webview.html).toMatch(/<script nonce="[^"]+">\s*if \(!window\.vscode\)\s*window\.vscode = acquireVsCodeApi\(\);/)
+    expect(panel.webview.html).not.toContain('acquireVsCodeApi')
     expect(panel.webview.html).toContain('window.__WEBVIEW_PROPS__ = {"name":"Ada"}')
     expect(panel.webview.html).toContain('src="webview:/extension/media/icon.png"')
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js"')
+    expect(panel.webview.html).toContain('src="//cdn.example.com/app.js"')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/cdn.example.com')
   })
 
   it('rejects html urls with an existing CSP meta', async () => {
@@ -421,6 +441,22 @@ describe('CreateWebview', () => {
 
     expect(panel.webview.html.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(panel.webview.html.indexOf('webview:/extension/media/head.js'))
     expect(panel.webview.html.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(panel.webview.html.indexOf('webview:/extension/media/head.css'))
+  })
+
+  it('adds a head element when html urls omit head', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><body><div id="app"></div></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toMatch(/<html>\s*<head>\s*<meta http-equiv="Content-Security-Policy"/)
+    expect(panel.webview.html.indexOf('<head>')).toBeGreaterThan(panel.webview.html.indexOf('<html>'))
+    expect(panel.webview.html.indexOf('</head>')).toBeLessThan(panel.webview.html.indexOf('<body>'))
   })
 
   it('applies configured styles and scripts when loading html urls', async () => {

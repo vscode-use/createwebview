@@ -77,16 +77,18 @@ function activate(context: vscode.ExtensionContext) {
 
 `scripts` 选项只接收脚本路径或 URL。内联 JavaScript 请使用 `deferScript`。
 
-`createWithHTMLUrl` 只会重写使用双引号、且路径以 `./` 或 `/` 开头的本地 `src` 和 `href` 资源，例如 `src="./app.js"`。`src="app.js"` 这样的裸文件名、单引号属性、`srcset` 和 CSS `url(...)` 不会被重写。
+`createWithHTMLUrl` 只会重写使用双引号、且路径以 `./` 或单个 `/` 开头的本地 `src` 和 `href` 资源，例如 `src="./app.js"`。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL、`src="app.js"` 这样的裸文件名、单引号属性、`srcset` 和 CSS `url(...)` 不会被重写。
 
 传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会阻止 HTML 文件里的内联 `<script>`、内联 `<style>` 和 style attributes，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts` 或 `deferScriptUri` 引入，或者通过 `csp` 明确放开。
 
 `deferScriptUri` 会把 `media` 下浏览器可直接执行的 `.js` 文件作为外部脚本注入。TypeScript 需要先编译成 JavaScript。渲染前先调用 `setProps`，脚本里通过 `window.__WEBVIEW_PROPS__` 读取参数。
 
-运行时代码会把 VS Code API 暴露为 `window.vscode`。业务脚本中使用 `window.vscode.postMessage(...)`，不要再次调用 `acquireVsCodeApi()`。
+运行时代码默认不会把 VS Code API 暴露到 `window`。可信的 webview 脚本可以直接调用 `acquireVsCodeApi()`。如果需要旧的全局 API，可以设置 `exposeVsCodeApi: true` 得到 `window.vscode`，也可以传字符串，例如 `exposeVsCodeApi: 'editorApi'`。
 
 ```ts
 const { name, age } = window.__WEBVIEW_PROPS__
+const vscode = acquireVsCodeApi()
+vscode.postMessage({ type: 'ready' })
 const App = {
   data() {
     return {
@@ -97,6 +99,17 @@ const App = {
 }
 new Vue(App).$mount('#app')
 ```
+
+## 从 0.0.x 迁移
+
+这个版本包含破坏性行为变化，发布时应该使用 `0.1.0`。
+
+- `retainContextWhenHidden` 现在默认是 `false`。
+- 远程 scripts 和 styles 必须通过 `allowedScriptSources`、`allowedStyleSources` 显式允许，除非传入自定义 `csp`。
+- `scripts` 只接受路径和 URL。内联 JavaScript 请使用 `deferScript`。
+- `deferScriptUri` 现在会从 `media` 注入外部脚本，不再读取文件并内联。
+- props 现在通过 `window.__WEBVIEW_PROPS__` 读取，不再是 `webviewThis`。
+- VS Code API 默认不再暴露为 `window.vscode`。在可信脚本里使用 `acquireVsCodeApi()`，或通过 `exposeVsCodeApi` 显式开启。
 
 ## Cases
 - [vscode icones](https://marketplace.visualstudio.com/items?itemName=simonhe.vscode-icones)

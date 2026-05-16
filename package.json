@@ -1,6 +1,6 @@
 {
   "name": "@vscode-use/createwebview",
-  "version": "0.0.13",
+  "version": "0.1.0",
   "packageManager": "pnpm@10.33.4",
   "description": "",
   "author": "Simon He",

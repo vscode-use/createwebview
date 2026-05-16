@@ -17,6 +17,7 @@ export interface Options {
   allowedConnectSources?: string[]
   csp?: string
   html?: string
+  exposeVsCodeApi?: boolean | string
 }
 export class CreateWebview {
   private webviewView?: vscode.WebviewPanel
@@ -39,6 +40,7 @@ export class CreateWebview {
   private allowedConnectSources: string[]
   private csp?: string
   private onMessage?: (data: any) => void
+  private exposeVsCodeApi?: string
   constructor(
     extension: vscode.ExtensionContext | vscode.Uri,
     options: Options,
@@ -63,6 +65,10 @@ export class CreateWebview {
     this.allowedConnectSources = options.allowedConnectSources || []
     this.csp = options.csp
     this.onMessage = options.onMessage
+    if (options.exposeVsCodeApi === true)
+      this.exposeVsCodeApi = 'vscode'
+    else if (typeof options.exposeVsCodeApi === 'string')
+      this.exposeVsCodeApi = options.exposeVsCodeApi
   }
 
   public setProps(props: Record<string, any>) {
@@ -126,9 +132,10 @@ export class CreateWebview {
     try {
       const content = await this._getWebviewContent(webviewView.webview)
       const renderedHtml = this._injectHeadContent(
-        html.replace(/(?:src|href)="([/.][^"]*)"/g, (_, u) => _.replace(u, webviewView.webview.asWebviewUri(
-          this._getMediaUri(u),
-        ).toString())),
+        html.replace(/\b(src|href)="(\/(?!\/)[^"]*|\.\/[^"]*)"/g, (match, _attr, uri) => {
+          const webviewUri = webviewView.webview.asWebviewUri(this._getMediaUri(uri)).toString()
+          return match.replace(uri, webviewUri)
+        }),
         content.head,
       )
       webviewView.webview.html = this._injectBodyEndContent(renderedHtml, content.bodyEnd)
@@ -251,14 +258,19 @@ export class CreateWebview {
         const src = webview.asWebviewUri(this._getMediaUri(uri)).toString()
         return `<script src="${this._escapeHtmlAttribute(src)}"></script>`
       })
+    let vscodeApiScript = ''
+    if (this.exposeVsCodeApi) {
+      const apiName = this._serializeForInlineScript(this.exposeVsCodeApi)
+      vscodeApiScript = `<script nonce="${nonce}">
+            if (!window[${apiName}])
+              window[${apiName}] = acquireVsCodeApi();
+          </script>`
+    }
 
     return {
       head: `${this._getCspMeta(webview, nonce)}
           ${styles}
-          <script nonce="${nonce}">
-            if (!window.vscode)
-              window.vscode = acquireVsCodeApi();
-          </script>
+          ${vscodeApiScript}
           <script nonce="${nonce}">
             window.__WEBVIEW_PROPS__ = ${this._serializeForInlineScript(this.props)}
           </script>
@@ -309,9 +321,13 @@ export class CreateWebview {
   }
 
   private _injectHeadContent(html: string, content: string) {
-    return /<head\b[^>]*>/i.test(html)
-      ? html.replace(/<head\b[^>]*>/i, match => `${match}\n${content}`)
-      : `${content}\n${html}`
+    if (/<head\b[^>]*>/i.test(html))
+      return html.replace(/<head\b[^>]*>/i, match => `${match}\n${content}`)
+
+    if (/<html\b[^>]*>/i.test(html))
+      return html.replace(/<html\b[^>]*>/i, match => `${match}\n<head>\n${content}\n</head>`)
+
+    return `<head>\n${content}\n</head>\n${html}`
   }
 
   private _injectBodyEndContent(html: string, content: string) {
