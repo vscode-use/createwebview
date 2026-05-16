@@ -3,7 +3,7 @@
 </p>
 <p align="center"> English | <a href="./README_zh.md">简体中文</a></p>
 
-Let you create a webview vscode plug-in in 1 minute
+A small, CSP-aware helper for creating VS Code WebviewPanel instances.
 
 ## Install
 
@@ -48,8 +48,8 @@ function activate(context: vscode.ExtensionContext) {
   })
 
   const viewTodoDisposable = vscode.commands.registerCommand('extension.openWebview', async () => {
-    // Relative path based on the root directory
-    // The local path resource (href="" | src="") in html needs to use the relative path and put it under the media folder in the root directory.
+    // HTML file path is relative to the extension root.
+    // Local src/href resources in the HTML resolve from media by default, not from the HTML file directory.
     await provider.createWithHTMLUrl('./src/webview/index.html', (data) => {
       // callback Get the post message data of the js layer
     })
@@ -59,9 +59,14 @@ function activate(context: vscode.ExtensionContext) {
 }
 ```
 
+Remote resources already present in HTML files are left in place and governed by the injected CSP.
+
 ## Api
 
-- provider.isActive ***Checks whether the current webview is open***
+- provider.isOpen ***Checks whether this provider currently has an open webview panel***
+- provider.isActive ***Checks whether this provider's webview panel is the active editor panel***
+- provider.isVisible ***Checks whether this provider's webview panel is visible***
+- provider.reveal ***Reveal the current webview panel if it exists***
 - provider.create ***Create a webview***
 - provider.createWithHTMLUrl ***Create a webview from an HTML file***
 - provider.destroy ***Destroy Close the webview***
@@ -76,13 +81,17 @@ function activate(context: vscode.ExtensionContext) {
 
 ## Feature
 
-Local scripts and styles are resolved from the extension `media` directory by default. Use `mediaRoot` when your assets live under a different extension-relative directory, or `localResourceRoots` when you need to pass explicit VS Code resource roots. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font and image sources allow VS Code webview resources, `https:`, and `data:` by default; set `strictCsp: true` to allow only VS Code webview resources plus explicit `allowedImageSources` and `allowedFontSources`. Add extra sources with `allowedImageSources`, `allowedFontSources`, `allowedConnectSources`, `allowedMediaSources`, `allowedFrameSources`, `allowedManifestSources`, `allowedWorkerSources`, and `allowedPrefetchSources`.
+Local scripts and styles are resolved from the extension `media` directory by default. Use `mediaRoot` when your assets live under a different extension-relative directory, or `localResourceRoots` when you need to pass explicit VS Code resource roots. `mediaRoot` is normalized as an extension-relative path and rejects parent directory segments. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font and image sources allow VS Code webview resources, `https:`, and `data:` by default; set `strictCsp: true` to allow only VS Code webview resources plus explicit `allowedImageSources` and `allowedFontSources`. Add extra sources with `allowedImageSources`, `allowedFontSources`, `allowedConnectSources`, `allowedMediaSources`, `allowedFrameSources`, `allowedManifestSources`, `allowedWorkerSources`, and `allowedPrefetchSources`.
 
 For `allowedScriptSources` and `allowedStyleSources`, prefer `https:`, an origin such as `https://cdn.example.com`, a wildcard origin such as `https://*.example.com`, or a specific URL/path. Use a custom `csp` for more complex CSP source expressions.
 
 The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
 
-`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons. It supports double-quoted, single-quoted, and unquoted attributes; paths may start with `./`, a single `/`, or use a bare relative filename such as `src="app.js"`. It also rewrites local `srcset` entries on `img` and `source`, plus local CSS `url(...)` references in inline `style` attributes and `<style>` tags. Normal links such as `a href`, `base href`, and canonical links are not rewritten. External URLs and protocol-relative URLs like `src="//cdn.example.com/app.js"` are not rewritten. CSS files loaded through `link` are not parsed.
+`viewType` defaults to `createwebview.panel`. Pass your own stable extension-level id when you need to distinguish different panel types.
+
+Each `CreateWebview` instance manages one panel. A later successful `create` or `createWithHTMLUrl` call disposes the previous panel.
+
+`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons. It supports double-quoted, single-quoted, and unquoted attributes; paths may start with `./`, a single `/`, or use a bare relative filename such as `src="app.js"`. It also rewrites local `srcset` entries on `img` and `source`, plus local CSS `url(...)` references in inline `style` attributes and `<style>` tags. It does not parse or rewrite raw text inside `script`, `textarea`, or `title` elements. Normal links such as `a href`, `base href`, and canonical links are not rewritten. External URLs and protocol-relative URLs like `src="//cdn.example.com/app.js"` are not rewritten. CSS files loaded through `link` are not parsed.
 
 HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts`, `setDeferredScriptUris`, or `addDeferredScriptUris`, or explicitly relax the policy with `csp`.
 
@@ -97,7 +106,18 @@ style-src ${webview.cspSource};
 
 `setDeferredScriptUris` and `addDeferredScriptUris` inject browser-ready `.js` files from `media` as external scripts. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
 
-The runtime does not expose the VS Code API on `window` by default. Trusted webview scripts can call `acquireVsCodeApi()` directly. If you need the legacy global API, set `exposeVsCodeApi: true` for `window.vscode`, or pass a string such as `exposeVsCodeApi: 'editorApi'`. When `exposeVsCodeApi` is enabled, business scripts should use `window.vscode` or the configured name instead of calling `acquireVsCodeApi()` again.
+`setProps` accepts JSON-serializable values.
+
+The runtime does not expose the VS Code API on `window` by default. Trusted webview scripts can call `acquireVsCodeApi()` directly. If you need the legacy global API, set `exposeVsCodeApi: true` for `window.vscode`, or pass a safe identifier such as `exposeVsCodeApi: 'editorApi'`. Reserved global names such as `document`, `location`, and `__proto__` are rejected. When `exposeVsCodeApi` is enabled, business scripts should use `window.vscode` or the configured name instead of calling `acquireVsCodeApi()` again.
+
+Script loading behavior:
+
+| API | Use for | CSP handling |
+| --- | --- | --- |
+| `scripts` | external local paths or allowed remote URLs | local paths use webview resources; remote URLs must be allowlisted unless custom `csp` is used |
+| `deferScript` | trusted inline JavaScript source | rendered with the runtime nonce when scripts are enabled |
+| `setDeferredScriptUris` / `addDeferredScriptUris` | browser-ready local `.js` files under `mediaRoot` | rendered as local webview resource scripts |
+| HTML `<script src>` in `createWithHTMLUrl` | scripts already present in the HTML file | local `src` is rewritten; remote `src` is left to CSP |
 
 ```ts
 const { name, age } = window.__WEBVIEW_PROPS__
@@ -112,6 +132,12 @@ const App = {
   },
 }
 new Vue(App).$mount('#app')
+```
+
+Extension side:
+
+```ts
+await provider.postMessage({ type: 'init', payload: {} })
 ```
 
 ## Security model

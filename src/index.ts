@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export type JsonProps = Record<string, JsonValue>
+
 export interface Options<TMessage = unknown> {
   viewType?: string
   title?: string
@@ -38,14 +41,14 @@ interface ParsedHtmlAttribute {
   valueEnd: number
 }
 
-export class CreateWebview<TMessage = unknown> {
+export class CreateWebview<TMessage = unknown, TProps extends JsonProps = JsonProps> {
   private webviewView?: vscode.WebviewPanel
   private createRequestId = 0
   private _deferScript = ''
   private _extensionUri: vscode.Uri
   private mediaRoot: string
   private localResourceRoots: vscode.Uri[]
-  private props: Record<string, any> = {}
+  private props: Partial<TProps> = {}
   private deferredScriptUris: string[] = []
   private viewColumn: vscode.ViewColumn
   private _viewType: string
@@ -75,10 +78,11 @@ export class CreateWebview<TMessage = unknown> {
     options: Options<TMessage>,
   ) {
     this._extensionUri = 'extensionUri' in extension ? extension.extensionUri : extension
-    this.mediaRoot = options.mediaRoot || 'media'
+    const mediaRoot = options.mediaRoot || 'media'
+    this.mediaRoot = this._normalizeSafePath(mediaRoot, 'mediaRoot', mediaRoot)
     this.localResourceRoots = options.localResourceRoots || [vscode.Uri.joinPath(this._extensionUri, this.mediaRoot)]
     this._title = options.title || 'webview'
-    this._viewType = options.viewType || this._title
+    this._viewType = options.viewType || 'createwebview.panel'
     this._html = options.html || ''
     this._scripts = options.scripts
       ? (Array.isArray(options.scripts) ? options.scripts : [options.scripts])
@@ -115,13 +119,16 @@ export class CreateWebview<TMessage = unknown> {
       this._assertValidCspSourceTokens('allowedPrefetchSources', this.allowedPrefetchSources)
     }
     this.onMessage = options.onMessage
-    if (options.exposeVsCodeApi === true)
+    if (options.exposeVsCodeApi === true) {
       this.exposeVsCodeApi = 'vscode'
-    else if (typeof options.exposeVsCodeApi === 'string')
+    }
+    else if (typeof options.exposeVsCodeApi === 'string') {
+      this._assertSafeGlobalApiName(options.exposeVsCodeApi)
       this.exposeVsCodeApi = options.exposeVsCodeApi
+    }
   }
 
-  public setProps(props: Record<string, any>) {
+  public setProps(props: Partial<TProps>) {
     this.props = { ...this.props, ...props }
   }
 
@@ -239,6 +246,18 @@ export class CreateWebview<TMessage = unknown> {
 
   public isActive() {
     return this.webviewView?.active ?? false
+  }
+
+  public isOpen() {
+    return !!this.webviewView
+  }
+
+  public isVisible() {
+    return this.webviewView?.visible ?? false
+  }
+
+  public reveal(viewColumn = this.viewColumn) {
+    this.webviewView?.reveal(viewColumn)
   }
 
   /**
@@ -558,13 +577,22 @@ ${html}
         : tag
       index = tagEnd + 1
 
-      if (tagName === 'style' && !/^<\s*\//.test(tag)) {
-        const closingStyleTag = html.slice(index).match(/<\/style\s*>/i)
-        if (closingStyleTag?.index !== undefined) {
-          const styleEnd = index + closingStyleTag.index
-          output += this._rewriteCssUrls(html.slice(index, styleEnd), webview)
-          output += closingStyleTag[0]
-          index = styleEnd + closingStyleTag[0].length
+      if (tagName && !/^<\s*\//.test(tag)) {
+        if (tagName === 'style') {
+          const closingStyleTag = this._findHtmlClosingTag(html, index, 'style')
+          if (closingStyleTag) {
+            output += this._rewriteCssUrls(html.slice(index, closingStyleTag.start), webview)
+            output += closingStyleTag.text
+            index = closingStyleTag.end
+          }
+        }
+        else if (['script', 'textarea', 'title'].includes(tagName)) {
+          const closingTag = this._findHtmlClosingTag(html, index, tagName)
+          if (!closingTag)
+            return output + html.slice(index)
+
+          output += html.slice(index, closingTag.end)
+          index = closingTag.end
         }
       }
     }
@@ -624,6 +652,19 @@ ${html}
     }
 
     return -1
+  }
+
+  private _findHtmlClosingTag(html: string, start: number, tagName: string) {
+    const match = html.slice(start).match(new RegExp(`</\\s*${tagName}\\s*>`, 'i'))
+    if (match?.index === undefined)
+      return
+
+    const tagStart = start + match.index
+    return {
+      start: tagStart,
+      end: tagStart + match[0].length,
+      text: match[0],
+    }
   }
 
   private _getHtmlTagName(tag: string) {
@@ -852,6 +893,28 @@ ${html}
     const invalidSource = sources.find(source => /[\s;"<>]/.test(source))
     if (invalidSource)
       throw new Error(`Invalid CSP source token in ${optionName}: ${invalidSource}`)
+  }
+
+  private _assertSafeGlobalApiName(apiName: string) {
+    if (!/^[A-Za-z_$][\w$]*$/.test(apiName))
+      throw new Error('exposeVsCodeApi must be a safe JavaScript identifier')
+
+    const reservedGlobals = new Set([
+      '__proto__',
+      'constructor',
+      'document',
+      'frames',
+      'globalThis',
+      'location',
+      'opener',
+      'parent',
+      'prototype',
+      'self',
+      'top',
+      'window',
+    ])
+    if (reservedGlobals.has(apiName))
+      throw new Error(`exposeVsCodeApi cannot use a reserved global name: ${apiName}`)
   }
 
   private _renderInlineScript(script: string, nonce: string) {
