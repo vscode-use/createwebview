@@ -319,6 +319,7 @@ export class CreateWebview {
     const scriptsUri = this.deferredScriptUris
       .map((uri) => {
         this._assertSupportedResourceUri(uri, 'deferred script')
+        this._assertLocalMediaPath(uri, 'deferred script')
         const src = webview.asWebviewUri(this._getMediaUri(uri)).toString()
         return `<script src="${this._escapeHtmlAttribute(src)}"></script>`
       })
@@ -357,6 +358,7 @@ export class CreateWebview {
   }
 
   private _getExtensionFileUri(uri: string) {
+    this._assertRelativeExtensionPath(uri)
     const normalized = this._normalizeSafePath(uri, 'extension file', uri)
 
     return vscode.Uri.joinPath(this._extensionUri, normalized)
@@ -397,7 +399,9 @@ export class CreateWebview {
         .replace(/\$\{webview.cspSource\}/g, webview.cspSource)
     }
 
-    const scriptSources = [`'nonce-${nonce}'`, webview.cspSource, ...this.allowedScriptSources]
+    const scriptSources = this.enableScripts
+      ? [`'nonce-${nonce}'`, webview.cspSource, ...this.allowedScriptSources]
+      : ['\'none\'']
     const styleSources = [webview.cspSource, ...this.allowedStyleSources]
     const imageSources = [webview.cspSource, 'https:', 'data:', ...this.allowedImageSources]
     const fontSources = [webview.cspSource, 'https:', 'data:', ...this.allowedFontSources]
@@ -405,7 +409,9 @@ export class CreateWebview {
     const mediaSources = [webview.cspSource, ...this.allowedMediaSources]
     const frameSources = [webview.cspSource, ...this.allowedFrameSources]
     const manifestSources = [webview.cspSource, ...this.allowedManifestSources]
-    const workerSources = [webview.cspSource, ...this.allowedWorkerSources]
+    const workerSources = this.enableScripts
+      ? [webview.cspSource, ...this.allowedWorkerSources]
+      : ['\'none\'']
     const prefetchSources = [webview.cspSource, ...this.allowedPrefetchSources]
 
     return [
@@ -505,6 +511,16 @@ export class CreateWebview {
   private _assertSupportedResourceUri(uri: string, kind: string) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(uri) && !this._isExternalUri(uri))
       throw new Error(`Unsupported ${kind} URI scheme: ${uri}`)
+  }
+
+  private _assertLocalMediaPath(uri: string, kind: string) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) || /^\/\//.test(uri))
+      throw new Error(`${kind} must be a path under the media directory: ${uri}`)
+  }
+
+  private _assertRelativeExtensionPath(uri: string) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) || /^\/\//.test(uri))
+      throw new Error(`HTML URL must be a relative extension path: ${uri}`)
   }
 
   private _isExternalUri(uri: string) {

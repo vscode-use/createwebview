@@ -161,6 +161,15 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="webview:/extension/media/deferred.js?v=2#boot"></script>')
   })
 
+  it('rejects external deferred script uris', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    provider.deferScriptUri('https://cdn.example.com/app.js')
+
+    await expect(renderHtml(provider)).rejects.toThrow('deferred script must be a path under the media directory: https://cdn.example.com/app.js')
+  })
+
   it('rejects external resources that are not allowed by the default CSP', async () => {
     const { CreateWebview } = await import('../src/index')
     const scriptProvider = new CreateWebview(context as any, {
@@ -346,6 +355,9 @@ describe('CreateWebview', () => {
 
     expect(html).toContain('<link href="webview:/extension/media/main.css" rel="stylesheet">')
     expect(html).not.toContain('<script')
+    expect(html).toContain('script-src \'none\'')
+    expect(html).toContain('worker-src \'none\'')
+    expect(html).not.toContain('script-src \'nonce-')
     expect(html).not.toContain('acquireVsCodeApi')
     expect(html).not.toContain('window.__WEBVIEW_PROPS__')
     expect(html).not.toContain('window.inline = true')
@@ -858,6 +870,23 @@ describe('CreateWebview', () => {
     await expect(provider.createWithHTMLUrl('../outside.html')).rejects.toThrow('Invalid extension file path: ../outside.html')
     await expect(provider.createWithHTMLUrl('..\\outside.html')).rejects.toThrow('Invalid extension file path: ..\\outside.html')
     await expect(provider.createWithHTMLUrl('%2e%2e/outside.html')).rejects.toThrow('Invalid extension file path: %2e%2e/outside.html')
+    expect(vscodeMock.workspace.fs.readFile).not.toHaveBeenCalled()
+    expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
+  })
+
+  it('rejects html urls with URL-like inputs', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    const htmlUrls = [
+      'file:///tmp/index.html',
+      'http://example.com/index.html',
+      'C:\\tmp\\index.html',
+      '//cdn.example.com/index.html',
+    ]
+
+    for (const htmlUrl of htmlUrls)
+      await expect(provider.createWithHTMLUrl(htmlUrl)).rejects.toThrow(`HTML URL must be a relative extension path: ${htmlUrl}`)
+
     expect(vscodeMock.workspace.fs.readFile).not.toHaveBeenCalled()
     expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
   })
