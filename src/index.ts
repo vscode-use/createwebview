@@ -65,6 +65,13 @@ export class CreateWebview {
     this.allowedFontSources = options.allowedFontSources || []
     this.allowedConnectSources = options.allowedConnectSources || []
     this.csp = options.csp
+    if (!this.csp) {
+      this._assertValidCspSourceTokens('allowedScriptSources', this.allowedScriptSources)
+      this._assertValidCspSourceTokens('allowedStyleSources', this.allowedStyleSources)
+      this._assertValidCspSourceTokens('allowedImageSources', this.allowedImageSources)
+      this._assertValidCspSourceTokens('allowedFontSources', this.allowedFontSources)
+      this._assertValidCspSourceTokens('allowedConnectSources', this.allowedConnectSources)
+    }
     this.onMessage = options.onMessage
     if (options.exposeVsCodeApi === true)
       this.exposeVsCodeApi = 'vscode'
@@ -297,11 +304,16 @@ export class CreateWebview {
   }
 
   private _getMediaUri(uri: string) {
-    const normalized = uri.replace(/^\/+/, '').replace(/^\.\//, '')
+    const match = uri.match(/^([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/)
+    const rawPath = match?.[1] ?? uri
+    const query = match?.[2] ?? ''
+    const fragment = match?.[3] ?? ''
+    const normalized = rawPath.replace(/^\/+/, '').replace(/^\.\/+/, '')
     if (normalized.split('/').includes('..'))
       throw new Error(`Invalid media path: ${uri}`)
 
-    return vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
+    const mediaUri = vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
+    return query || fragment ? mediaUri.with({ query, fragment }) : mediaUri
   }
 
   private _getExtensionFileUri(uri: string) {
@@ -393,9 +405,19 @@ export class CreateWebview {
       if (!this._isExternalUri(source))
         return false
 
-      const normalized = source.endsWith('/') ? source : `${source}/`
-      return uri.startsWith(normalized)
+      const allowed = new URL(source)
+      if (allowed.origin !== parsed.origin)
+        return false
+
+      const allowedPath = allowed.pathname.endsWith('/') ? allowed.pathname : `${allowed.pathname}/`
+      return parsed.pathname === allowed.pathname || parsed.pathname.startsWith(allowedPath)
     })
+  }
+
+  private _assertValidCspSourceTokens(optionName: string, sources: string[]) {
+    const invalidSource = sources.find(source => /[\s;"<>]/.test(source))
+    if (invalidSource)
+      throw new Error(`Invalid CSP source token in ${optionName}: ${invalidSource}`)
   }
 
   private _renderInlineScript(script: string, nonce: string) {

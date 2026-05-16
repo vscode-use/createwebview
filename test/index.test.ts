@@ -1,13 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const vscodeMock = (() => {
-  const joinPath = vi.fn((base: any, ...parts: string[]) => {
-    const path = [base.path, ...parts].join('/').replace(/\/+/g, '/').replace('/./', '/')
-    return {
+  function createUri(path: string, query = '', fragment = '') {
+    const uri = {
       path,
       fsPath: path,
-      toString: () => path,
+      toString: () => `${path}${query ? `?${query}` : ''}${fragment ? `#${fragment}` : ''}`,
     }
+    Object.defineProperties(uri, {
+      query: { value: query },
+      fragment: { value: fragment },
+      with: {
+        value: (changes: { query?: string; fragment?: string }) => {
+          return createUri(path, changes.query ?? query, changes.fragment ?? fragment)
+        },
+      },
+    })
+    return uri
+  }
+
+  const joinPath = vi.fn((base: any, ...parts: string[]) => {
+    const path = [base.path, ...parts].join('/').replace(/\/+/g, '/').replace('/./', '/')
+    return createUri(path)
   })
 
   return {
@@ -42,7 +56,7 @@ function createWebview() {
   return {
     html: '',
     cspSource: 'vscode-resource:',
-    asWebviewUri: vi.fn((uri: any) => `webview:${uri.path}`),
+    asWebviewUri: vi.fn((uri: any) => `webview:${uri.path}${uri.query ? `?${uri.query}` : ''}${uri.fragment ? `#${uri.fragment}` : ''}`),
     onDidReceiveMessage: vi.fn(),
     postMessage: vi.fn(async () => true),
   }
@@ -112,6 +126,27 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="https://cdn.example.com/app.js"></script>')
   })
 
+  it('preserves query strings and fragments on local style and script paths', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      styles: ['main.css?v=1#theme'],
+      scripts: [
+        { enforce: 'pre', src: 'pre.js?entry=head' },
+        'post.js#app',
+      ],
+    })
+
+    provider.deferScriptUri('deferred.js?v=2#boot')
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('<link href="webview:/extension/media/main.css?v=1#theme" rel="stylesheet">')
+    expect(html).toContain('<script src="webview:/extension/media/pre.js?entry=head"></script>')
+    expect(html).toContain('<script src="webview:/extension/media/post.js#app"></script>')
+    expect(html).toContain('<script src="webview:/extension/media/deferred.js?v=2#boot"></script>')
+  })
+
   it('rejects external resources that are not allowed by the default CSP', async () => {
     const { CreateWebview } = await import('../src/index')
     const scriptProvider = new CreateWebview(context as any, {
@@ -154,6 +189,17 @@ describe('CreateWebview', () => {
     await expect(renderHtml(rejectedProvider)).rejects.toThrow('External script source is not allowed by CSP: https://evil.com/app.js')
   })
 
+  it('rejects path traversal after normalizing external allowed sources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['https://cdn.example.com/safe/../evil.js'],
+      allowedScriptSources: ['https://cdn.example.com/safe'],
+    })
+
+    await expect(renderHtml(provider)).rejects.toThrow('External script source is not allowed by CSP: https://cdn.example.com/safe/../evil.js')
+  })
+
   it('does not nonce allowed external script sources', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
@@ -192,6 +238,24 @@ describe('CreateWebview', () => {
     expect(html).toContain('https://cdn.example.com')
     expect(html).not.toContain('unsafe-inline')
     expect(html).not.toContain('acquireVsCodeApi')
+  })
+
+  it('rejects invalid CSP source tokens in default CSP options', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const invalidOptions = [
+      ['allowedScriptSources', 'https://cdn.example.com; script-src *'],
+      ['allowedStyleSources', 'https://cdn.example.com theme.css'],
+      ['allowedImageSources', 'https://cdn.example.com"bad'],
+      ['allowedFontSources', 'https://cdn.example.com<bad>'],
+      ['allowedConnectSources', 'https://api.example.com>'],
+    ]
+
+    for (const [optionName, source] of invalidOptions) {
+      expect(() => new CreateWebview(context as any, {
+        title: 'Test',
+        [optionName]: [source],
+      })).toThrow(`Invalid CSP source token in ${optionName}: ${source}`)
+    }
   })
 
   it('exposes the VS Code API only when configured', async () => {
@@ -579,6 +643,22 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js"')
     expect(panel.webview.html).toContain('src="//cdn.example.com/app.js"')
     expect(panel.webview.html).not.toContain('webview:/extension/media/cdn.example.com')
+  })
+
+  it('preserves query strings and fragments when rewriting html url resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><link href="./main.css?v=1#theme" rel="stylesheet"></head><body><img src="./icon.svg#logo"><script src="/app.js?entry=main#boot"></script></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toContain('href="webview:/extension/media/main.css?v=1#theme"')
+    expect(panel.webview.html).toContain('src="webview:/extension/media/icon.svg#logo"')
+    expect(panel.webview.html).toContain('src="webview:/extension/media/app.js?entry=main#boot"')
   })
 
   it('rejects html urls containing parent directory segments', async () => {
