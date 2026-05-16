@@ -187,16 +187,16 @@ export class CreateWebview {
 
   private async _getWebviewContent(webview: vscode.Webview) {
     const nonce = this._getNonce()
-    const outerUriReg = /^http[s]:\/\//
     const styles = this._styles
       .filter(Boolean)
       .map((style) => {
-        const styleUri = outerUriReg.test(style)
+        this._assertExternalResourceAllowed('style', style, this.allowedStyleSources)
+        const styleUri = this._isExternalUri(style)
           ? style
           : webview.asWebviewUri(
             this._getMediaUri(style),
           )
-        return `<link href="${styleUri}" rel="stylesheet">`
+        return `<link href="${this._escapeHtmlAttribute(styleUri.toString())}" rel="stylesheet">`
       })
       .join('\n')
     const preScripts: string[] = []
@@ -212,14 +212,15 @@ export class CreateWebview {
       if (!script)
         return
 
-      const scriptUri = outerUriReg.test(script)
+      this._assertExternalResourceAllowed('script', script, this.allowedScriptSources)
+      const scriptUri = this._isExternalUri(script)
         ? script
         : webview.asWebviewUri(
           this._getMediaUri(script),
         )
       const _script = script.trim().startsWith('<script')
         ? this._renderInlineScript(script, nonce)
-        : `<script src="${scriptUri.toString()}"></script>`
+        : `<script src="${this._escapeHtmlAttribute(scriptUri.toString())}"></script>`
 
       if (isPre)
         preScripts.push(_script)
@@ -234,7 +235,8 @@ export class CreateWebview {
       head: `${this._getCspMeta(webview, nonce)}
           ${styles}
           <script nonce="${nonce}">
-            window.vscode = acquireVsCodeApi();
+            if (!window.vscode)
+              window.vscode = acquireVsCodeApi();
           </script>
           <script nonce="${nonce}">
             window.__WEBVIEW_PROPS__ = ${this._serializeForInlineScript(this.props)}
@@ -259,7 +261,7 @@ export class CreateWebview {
   }
 
   private _getCspMeta(webview: vscode.Webview, nonce: string) {
-    return `<meta http-equiv="Content-Security-Policy" content="${this._getCsp(webview, nonce)}">`
+    return `<meta http-equiv="Content-Security-Policy" content="${this._escapeHtmlAttribute(this._getCsp(webview, nonce))}">`
   }
 
   private _getCsp(webview: vscode.Webview, nonce: string) {
@@ -286,8 +288,8 @@ export class CreateWebview {
   }
 
   private _injectHeadContent(html: string, content: string) {
-    return /<\/head>/i.test(html)
-      ? html.replace(/<\/head>/i, `${content}\n</head>`)
+    return /<head\b[^>]*>/i.test(html)
+      ? html.replace(/<head\b[^>]*>/i, match => `${match}\n${content}`)
       : `${content}\n${html}`
   }
 
@@ -295,6 +297,35 @@ export class CreateWebview {
     return /<\/body>/i.test(html)
       ? html.replace(/<\/body>/i, `${content}\n</body>`)
       : `${html}\n${content}`
+  }
+
+  private _assertExternalResourceAllowed(kind: 'script' | 'style', uri: string, allowedSources: string[]) {
+    if (this.csp || !this._isExternalUri(uri) || this._isAllowedExternalResource(uri, allowedSources))
+      return
+
+    throw new Error(`External ${kind} source is not allowed by CSP: ${uri}`)
+  }
+
+  private _isExternalUri(uri: string) {
+    return /^https?:\/\//.test(uri)
+  }
+
+  private _isAllowedExternalResource(uri: string, allowedSources: string[]) {
+    const parsed = new URL(uri)
+
+    return allowedSources.some((source) => {
+      if (source === '*' || source.includes('*'))
+        return true
+
+      if (source === parsed.protocol || source === parsed.origin || source === uri)
+        return true
+
+      if (!this._isExternalUri(source))
+        return false
+
+      const normalized = source.endsWith('/') ? source : `${source}/`
+      return uri.startsWith(normalized)
+    })
   }
 
   private _renderInlineScript(script: string, nonce: string) {
@@ -307,6 +338,14 @@ export class CreateWebview {
     return script.trim().startsWith('<script')
       ? script.replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)
       : `<script nonce="${nonce}">${script}</script>`
+  }
+
+  private _escapeHtmlAttribute(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
   }
 
   private _serializeForInlineScript(value: unknown) {

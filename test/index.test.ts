@@ -97,6 +97,8 @@ describe('CreateWebview', () => {
         'post.js',
         'https://cdn.example.com/app.js',
       ],
+      allowedScriptSources: ['https://cdn.example.com'],
+      allowedStyleSources: ['https://cdn.example.com'],
     })
 
     const html = await renderHtml(provider)
@@ -108,19 +110,35 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="https://cdn.example.com/app.js"></script>')
   })
 
-  it('does not nonce external script sources', async () => {
+  it('rejects external resources that are not allowed by the default CSP', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const scriptProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['https://evil.example/app.js'],
+    })
+    const styleProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      styles: ['https://evil.example/app.css'],
+    })
+
+    await expect(renderHtml(scriptProvider)).rejects.toThrow('External script source is not allowed by CSP: https://evil.example/app.js')
+    await expect(renderHtml(styleProvider)).rejects.toThrow('External style source is not allowed by CSP: https://evil.example/app.css')
+  })
+
+  it('does not nonce allowed external script sources', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
       title: 'Test',
-      scripts: ['https://evil.example/app.js'],
+      scripts: ['https://cdn.example.com/app.js'],
+      allowedScriptSources: ['https://cdn.example.com'],
     })
 
     const html = await renderHtml(provider)
     const csp = html.match(/Content-Security-Policy" content="([^"]+)"/)?.[1]
 
-    expect(html).toContain('src="https://evil.example/app.js"')
-    expect(html).not.toMatch(/<script nonce="[^"]+" src="https:\/\/evil\.example/)
-    expect(csp).not.toContain('https://evil.example')
+    expect(html).toContain('src="https://cdn.example.com/app.js"')
+    expect(html).not.toMatch(/<script nonce="[^"]+" src="https:\/\/cdn\.example/)
+    expect(csp).toContain('https://cdn.example.com')
   })
 
   it('adds CSP meta and script nonces', async () => {
@@ -144,7 +162,7 @@ describe('CreateWebview', () => {
     expect(html).toContain('script-src \'nonce-')
     expect(html).toContain('https://cdn.example.com')
     expect(html).not.toContain('unsafe-inline')
-    expect(html).toMatch(/<script nonce="[^"]+">\s*window\.vscode = acquireVsCodeApi\(\);/)
+    expect(html).toMatch(/<script nonce="[^"]+">\s*if \(!window\.vscode\)\s*window\.vscode = acquireVsCodeApi\(\);/)
   })
 
   it('replaces custom CSP placeholders', async () => {
@@ -161,6 +179,23 @@ describe('CreateWebview', () => {
     expect(html).toContain('script-src vscode-resource: \'nonce-')
     expect(html).not.toContain(cspSourcePlaceholder)
     expect(html).not.toContain(noncePlaceholder)
+  })
+
+  it('escapes generated html attributes', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, {
+      title: 'Test',
+      csp: 'script-src "bad" <bad> &',
+      styles: ['https://cdn.example.com/theme"bad.css'],
+      scripts: ['https://cdn.example.com/app"bad.js'],
+    })
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('content="script-src &quot;bad&quot; &lt;bad&gt; &amp;"')
+    expect(html).toContain('href="https://cdn.example.com/theme&quot;bad.css"')
+    expect(html).toContain('src="https://cdn.example.com/app&quot;bad.js"')
+    expect(html).not.toContain('content="script-src "bad"')
   })
 
   it('uses safer panel defaults', async () => {
@@ -295,10 +330,25 @@ describe('CreateWebview', () => {
       toString: expect.any(Function),
     })
     expect(panel.webview.html).toContain('http-equiv="Content-Security-Policy"')
-    expect(panel.webview.html).toMatch(/<script nonce="[^"]+">\s*window\.vscode = acquireVsCodeApi\(\);/)
+    expect(panel.webview.html).toMatch(/<script nonce="[^"]+">\s*if \(!window\.vscode\)\s*window\.vscode = acquireVsCodeApi\(\);/)
     expect(panel.webview.html).toContain('window.__WEBVIEW_PROPS__ = {"name":"Ada"}')
     expect(panel.webview.html).toContain('src="webview:/extension/media/icon.png"')
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js"')
+  })
+
+  it('injects html url CSP before existing head resources', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><script src="./head.js"></script><link href="./head.css" rel="stylesheet"></head><body></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(panel.webview.html.indexOf('webview:/extension/media/head.js'))
+    expect(panel.webview.html.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(panel.webview.html.indexOf('webview:/extension/media/head.css'))
   })
 
   it('applies configured styles and scripts when loading html urls', async () => {
