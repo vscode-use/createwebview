@@ -1,6 +1,6 @@
 {
   "name": "@vscode-use/createwebview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packageManager": "pnpm@10.33.4",
   "description": "Small helper for creating VS Code webview panels with CSP and resource handling",
   "author": "Simon He",
