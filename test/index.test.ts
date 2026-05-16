@@ -66,11 +66,13 @@ function createPanel() {
   const disposeHandlers: Array<() => void> = []
   const panel = {
     active: true,
+    visible: true,
     webview: createWebview(),
     onDidDispose: vi.fn((handler: () => void) => {
       disposeHandlers.push(handler)
       return { dispose: vi.fn() }
     }),
+    reveal: vi.fn(),
     dispose: vi.fn(() => {
       disposeHandlers.forEach(handler => handler())
     }),
@@ -174,6 +176,18 @@ describe('CreateWebview', () => {
 
     expect(html).toContain('href="webview:/extension/webview-dist/main.css"')
     expect(html).toContain('src="webview:/extension/webview-dist/app.js"')
+  })
+
+  it('rejects media roots containing parent directory segments', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const mediaRoots = ['../outside', '..\\outside', '%2e%2e/outside']
+
+    for (const mediaRoot of mediaRoots) {
+      expect(() => new CreateWebview(context as any, {
+        title: 'Test',
+        mediaRoot,
+      })).toThrow(`Invalid mediaRoot path: ${mediaRoot}`)
+    }
   })
 
   it('rejects external deferred script uris', async () => {
@@ -382,6 +396,23 @@ describe('CreateWebview', () => {
     expect(legacyHtml).toMatch(/if \(!window\["vscode"\]\)\s*window\["vscode"\] = acquireVsCodeApi\(\);/)
   })
 
+  it('rejects unsafe VS Code API global names', async () => {
+    const { CreateWebview } = await import('../src/index')
+
+    expect(() => new CreateWebview(context as any, {
+      title: 'Test',
+      exposeVsCodeApi: 'editor-api',
+    })).toThrow('exposeVsCodeApi must be a safe JavaScript identifier')
+    expect(() => new CreateWebview(context as any, {
+      title: 'Test',
+      exposeVsCodeApi: 'document',
+    })).toThrow('exposeVsCodeApi cannot use a reserved global name: document')
+    expect(() => new CreateWebview(context as any, {
+      title: 'Test',
+      exposeVsCodeApi: '__proto__',
+    })).toThrow('exposeVsCodeApi cannot use a reserved global name: __proto__')
+  })
+
   it('does not inject scripts when enableScripts is false', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, {
@@ -497,13 +528,34 @@ describe('CreateWebview', () => {
     await provider.create('<div>inline</div>')
 
     expect(vscodeMock.window.createWebviewPanel).toHaveBeenCalledWith(
-      'Test',
+      'createwebview.panel',
       'Test',
       1,
       expect.objectContaining({
         localResourceRoots,
       }),
     )
+  })
+
+  it('distinguishes open panels from active panels', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    panel.active = false
+    panel.visible = false
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.create('<div>inline</div>')
+
+    expect(provider.isOpen()).toBe(true)
+    expect(provider.isActive()).toBe(false)
+    expect(provider.isVisible()).toBe(false)
+    provider.reveal(1)
+    expect(panel.reveal).toHaveBeenCalledWith(1)
+
+    panel.dispose()
+
+    expect(provider.isOpen()).toBe(false)
   })
 
   it('registers message handlers before assigning html', async () => {
@@ -810,6 +862,31 @@ describe('CreateWebview', () => {
     expect(html).toContain('<script src="webview:/extension/media/app.js"></script>')
   })
 
+  it('accepts interface props without string index signatures', async () => {
+    interface User {
+      name: string
+    }
+
+    interface WebviewProps {
+      user: User
+      tags: string[]
+    }
+
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview<unknown, WebviewProps>(context as any, {
+      title: 'Test',
+    })
+
+    provider.setProps({
+      user: { name: 'Ada' },
+      tags: ['vscode'],
+    })
+
+    const html = await renderHtml(provider)
+
+    expect(html).toContain('window.__WEBVIEW_PROPS__ = {"user":{"name":"Ada"},"tags":["vscode"]}')
+  })
+
   it('can set add and clear deferred script uris explicitly', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })
@@ -855,6 +932,20 @@ describe('CreateWebview', () => {
 
     expect(panel.webview.html).not.toContain('</script><script>alert(1)</script>')
     expect(panel.webview.html).toContain('\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e')
+  })
+
+  it('rejects props that cannot be JSON serialized', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const bigIntProvider = new CreateWebview(context as any, { title: 'Test' })
+    const circularProvider = new CreateWebview(context as any, { title: 'Test' })
+    const circularProps: Record<string, unknown> = {}
+    circularProps.self = circularProps
+
+    bigIntProvider.setProps({ count: BigInt(1) } as any)
+    circularProvider.setProps(circularProps as any)
+
+    await expect(renderHtml(bigIntProvider)).rejects.toThrow('setProps accepts JSON-serializable values only.')
+    await expect(renderHtml(circularProvider)).rejects.toThrow('setProps accepts JSON-serializable values only.')
   })
 
   it('rejects media paths containing parent directory segments', async () => {
@@ -974,6 +1065,34 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('background:url("webview:/extension/media/logo.png")')
     expect(panel.webview.html).toContain('background:url(https://cdn.example.com/bg.png)')
     expect(panel.webview.html).toContain('style="background:url(&quot;webview:/extension/media/inline.png&quot;)"')
+  })
+
+  it('does not rewrite tags inside html raw text elements', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head><title><img src="./title.png"></title><script>const tpl = \'<img src="./template.png">\'</script></head><body><textarea><img src="./field.png"></textarea><xmp><img src="./xmp.png"></xmp><iframe src="./frame.html"><img src="./frame-fallback.png"></iframe><noembed><img src="./noembed.png"></noembed><noframes><img src="./noframes.png"></noframes><img src="./real.png"></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toContain('<title><img src="./title.png"></title>')
+    expect(panel.webview.html).toContain('const tpl = \'<img src="./template.png">\'')
+    expect(panel.webview.html).toContain('<textarea><img src="./field.png"></textarea>')
+    expect(panel.webview.html).toContain('<xmp><img src="./xmp.png"></xmp>')
+    expect(panel.webview.html).toContain('<iframe src="webview:/extension/media/frame.html"><img src="./frame-fallback.png"></iframe>')
+    expect(panel.webview.html).toContain('<noembed><img src="./noembed.png"></noembed>')
+    expect(panel.webview.html).toContain('<noframes><img src="./noframes.png"></noframes>')
+    expect(panel.webview.html).toContain('src="webview:/extension/media/real.png"')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/title.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/template.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/field.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/xmp.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/frame-fallback.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/noembed.png')
+    expect(panel.webview.html).not.toContain('webview:/extension/media/noframes.png')
   })
 
   it('rejects path traversal in html url resource attributes', async () => {

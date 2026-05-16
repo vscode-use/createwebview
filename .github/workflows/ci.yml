@@ -46,6 +46,24 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+  pack-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Check package
+        run: pnpm pack:check
+
   test:
     runs-on: ${{ matrix.os }}
 

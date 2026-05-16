@@ -5,6 +5,7 @@ export default defineConfig({
   format: ['cjs', 'esm'],
   dts: true,
   clean: true,
-  minify: true,
+  sourcemap: true,
+  minify: false,
   external: ['vscode'],
 })

@@ -43,9 +43,6 @@
   "engines": {
     "vscode": "^1.77.0"
   },
-  "activationEvents": [
-    "onStartupFinished"
-  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch src",
