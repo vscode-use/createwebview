@@ -1,15 +1,17 @@
 import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 
-export interface Options {
+export interface Options<TMessage = unknown> {
   viewType?: string
   title?: string
   scripts?: string | (string | { enforce?: 'pre' | 'post'; src: string })[]
   styles?: string | string[]
-  onMessage?: (data: any) => void
+  onMessage?: (data: TMessage) => void
   viewColumn?: vscode.ViewColumn
   retainContextWhenHidden?: boolean
   enableScripts?: boolean
+  mediaRoot?: string
+  localResourceRoots?: vscode.Uri[]
   allowedScriptSources?: string[]
   allowedStyleSources?: string[]
   allowedImageSources?: string[]
@@ -20,16 +22,29 @@ export interface Options {
   allowedManifestSources?: string[]
   allowedWorkerSources?: string[]
   allowedPrefetchSources?: string[]
+  strictCsp?: boolean
   csp?: string
   existingCsp?: 'error' | 'replace'
+  /**
+   * Trusted HTML only. Do not pass unsanitized user or workspace content.
+   */
   html?: string
   exposeVsCodeApi?: boolean | string
 }
-export class CreateWebview {
+interface ParsedHtmlAttribute {
+  name: string
+  value?: string
+  valueStart: number
+  valueEnd: number
+}
+
+export class CreateWebview<TMessage = unknown> {
   private webviewView?: vscode.WebviewPanel
   private createRequestId = 0
   private _deferScript = ''
   private _extensionUri: vscode.Uri
+  private mediaRoot: string
+  private localResourceRoots: vscode.Uri[]
   private props: Record<string, any> = {}
   private deferredScriptUris: string[] = []
   private viewColumn: vscode.ViewColumn
@@ -50,15 +65,18 @@ export class CreateWebview {
   private allowedManifestSources: string[]
   private allowedWorkerSources: string[]
   private allowedPrefetchSources: string[]
+  private strictCsp: boolean
   private csp?: string
   private existingCsp: 'error' | 'replace'
-  private onMessage?: (data: any) => void
+  private onMessage?: (data: TMessage) => void
   private exposeVsCodeApi?: string
   constructor(
     extension: vscode.ExtensionContext | vscode.Uri,
-    options: Options,
+    options: Options<TMessage>,
   ) {
     this._extensionUri = 'extensionUri' in extension ? extension.extensionUri : extension
+    this.mediaRoot = options.mediaRoot || 'media'
+    this.localResourceRoots = options.localResourceRoots || [vscode.Uri.joinPath(this._extensionUri, this.mediaRoot)]
     this._title = options.title || 'webview'
     this._viewType = options.viewType || this._title
     this._html = options.html || ''
@@ -81,6 +99,7 @@ export class CreateWebview {
     this.allowedManifestSources = options.allowedManifestSources || []
     this.allowedWorkerSources = options.allowedWorkerSources || []
     this.allowedPrefetchSources = options.allowedPrefetchSources || []
+    this.strictCsp = options.strictCsp ?? false
     this.csp = options.csp
     this.existingCsp = options.existingCsp || 'error'
     if (!this.csp) {
@@ -106,7 +125,10 @@ export class CreateWebview {
     this.props = { ...this.props, ...props }
   }
 
-  public async create(html = this._html, callback: (data: any) => void = () => { }) {
+  /**
+   * Creates a webview from trusted HTML. Do not pass unsanitized user or workspace content.
+   */
+  public async create(html = this._html, callback: (data: TMessage) => void = () => { }) {
     const requestId = ++this.createRequestId
     const webviewView = vscode.window.createWebviewPanel(
       this._viewType, // 视图的声明方式
@@ -114,7 +136,7 @@ export class CreateWebview {
       this.viewColumn, // 在编辑器中显示的视图位置
       {
         enableScripts: this.enableScripts, // 启用JS,否则内容将被视为静态HTML
-        localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')],
+        localResourceRoots: this.localResourceRoots,
         retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
@@ -148,7 +170,7 @@ export class CreateWebview {
     })
   }
 
-  public async createWithHTMLUrl(htmlUrl: string, callback: (data: any) => void = () => { }) {
+  public async createWithHTMLUrl(htmlUrl: string, callback: (data: TMessage) => void = () => { }) {
     const requestId = ++this.createRequestId
     let bytes: Uint8Array
     try {
@@ -176,7 +198,7 @@ export class CreateWebview {
       this.viewColumn, // 在编辑器中显示的视图位置
       {
         enableScripts: this.enableScripts, // 启用JS,否则内容将被视为静态HTML
-        localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')],
+        localResourceRoots: this.localResourceRoots,
         retainContextWhenHidden: this.retainContextWhenHidden,
       },
     )
@@ -216,17 +238,12 @@ export class CreateWebview {
   }
 
   public isActive() {
-    try {
-      if (this.webviewView)
-        return this.webviewView.active
-    }
-    catch (error) {
-
-    }
-
-    return false
+    return this.webviewView?.active ?? false
   }
 
+  /**
+   * @deprecated Use destroy().
+   */
   public destory() {
     this.destroy()
   }
@@ -242,12 +259,27 @@ export class CreateWebview {
       = typeof scripts === 'string' ? scripts : scripts.join('\n')
   }
 
+  /**
+   * @deprecated Use addDeferredScriptUris() or setDeferredScriptUris().
+   */
   public deferScriptUri(scriptUri: string | string[]) {
+    this.addDeferredScriptUris(scriptUri)
+  }
+
+  public setDeferredScriptUris(scriptUri: string | string[]) {
+    this.deferredScriptUris = typeof scriptUri === 'string' ? [scriptUri] : [...scriptUri]
+  }
+
+  public addDeferredScriptUris(scriptUri: string | string[]) {
     const uris = typeof scriptUri === 'string' ? [scriptUri] : scriptUri
     this.deferredScriptUris.push(...uris)
   }
 
-  public async postMessage(data: any) {
+  public clearDeferredScriptUris() {
+    this.deferredScriptUris = []
+  }
+
+  public async postMessage(data: unknown) {
     return this.webviewView?.webview.postMessage(data) ?? false
   }
 
@@ -360,7 +392,7 @@ export class CreateWebview {
     const fragment = match?.[3] ?? ''
     const normalized = this._normalizeSafePath(rawPath, 'media', uri)
 
-    const mediaUri = vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
+    const mediaUri = vscode.Uri.joinPath(this._extensionUri, this.mediaRoot, normalized)
     return query || fragment ? mediaUri.with({ query, fragment }) : mediaUri
   }
 
@@ -410,8 +442,12 @@ export class CreateWebview {
       ? [`'nonce-${nonce}'`, webview.cspSource, ...this.allowedScriptSources]
       : ['\'none\'']
     const styleSources = [webview.cspSource, ...this.allowedStyleSources]
-    const imageSources = [webview.cspSource, 'https:', 'data:', ...this.allowedImageSources]
-    const fontSources = [webview.cspSource, 'https:', 'data:', ...this.allowedFontSources]
+    const imageSources = this.strictCsp
+      ? [webview.cspSource, ...this.allowedImageSources]
+      : [webview.cspSource, 'https:', 'data:', ...this.allowedImageSources]
+    const fontSources = this.strictCsp
+      ? [webview.cspSource, ...this.allowedFontSources]
+      : [webview.cspSource, 'https:', 'data:', ...this.allowedFontSources]
     const connectSources = [webview.cspSource, ...this.allowedConnectSources]
     const mediaSources = [webview.cspSource, ...this.allowedMediaSources]
     const frameSources = [webview.cspSource, ...this.allowedFrameSources]
@@ -472,8 +508,8 @@ ${html}
       : `${html}\n${content}`
   }
 
-  private _bindMessageHandler(webviewView: vscode.WebviewPanel, callback: (data: any) => void) {
-    webviewView.webview.onDidReceiveMessage((data: any) => {
+  private _bindMessageHandler(webviewView: vscode.WebviewPanel, callback: (data: TMessage) => void) {
+    webviewView.webview.onDidReceiveMessage((data: TMessage) => {
       callback(data)
       this.onMessage?.(data)
     })
@@ -492,26 +528,245 @@ ${html}
   }
 
   private _rewriteHtmlResources(html: string, webview: vscode.Webview) {
-    const rewriteUri = (uri: string) => {
-      return this._escapeHtmlAttribute(webview.asWebviewUri(this._getMediaUri(uri)).toString())
+    let output = ''
+    let index = 0
+
+    while (index < html.length) {
+      const tagStart = html.indexOf('<', index)
+      if (tagStart === -1)
+        return output + html.slice(index)
+
+      output += html.slice(index, tagStart)
+
+      if (html.startsWith('<!--', tagStart)) {
+        const commentEnd = html.indexOf('-->', tagStart + 4)
+        if (commentEnd === -1)
+          return output + html.slice(tagStart)
+        output += html.slice(tagStart, commentEnd + 3)
+        index = commentEnd + 3
+        continue
+      }
+
+      const tagEnd = this._findHtmlTagEnd(html, tagStart)
+      if (tagEnd === -1)
+        return output + html.slice(tagStart)
+
+      const tag = html.slice(tagStart, tagEnd + 1)
+      const tagName = this._getHtmlTagName(tag)
+      output += tagName && !/^<\s*\//.test(tag)
+        ? this._rewriteHtmlTag(tag, tagName, webview)
+        : tag
+      index = tagEnd + 1
+
+      if (tagName === 'style' && !/^<\s*\//.test(tag)) {
+        const closingStyleTag = html.slice(index).match(/<\/style\s*>/i)
+        if (closingStyleTag?.index !== undefined) {
+          const styleEnd = index + closingStyleTag.index
+          output += this._rewriteCssUrls(html.slice(index, styleEnd), webview)
+          output += closingStyleTag[0]
+          index = styleEnd + closingStyleTag[0].length
+        }
+      }
     }
 
-    return html
-      .replace(/<((?:script|img|source|video|audio|track|iframe)\b[^>]*?\s+src\s*=\s*")(\/(?!\/)[^"]*|\.\/[^"]*)"/gi, (_match, before, uri) => {
-        return `<${before}${rewriteUri(uri)}"`
-      })
-      .replace(/<link\b[^>]*>/gi, (tag) => {
-        if (!this._isResourceLinkTag(tag))
-          return tag
-
-        return tag.replace(/(\s+href\s*=\s*")(\/(?!\/)[^"]*|\.\/[^"]*)"/i, (_match, before, uri) => {
-          return `${before}${rewriteUri(uri)}"`
-        })
-      })
+    return output
   }
 
-  private _isResourceLinkTag(tag: string) {
-    const rel = tag.match(/\s+rel\s*=\s*"([^"]*)"/i)?.[1]
+  private _rewriteHtmlTag(tag: string, tagName: string, webview: vscode.Webview) {
+    const attrs = this._parseHtmlAttributes(tag)
+    const replacements: Array<{ start: number; end: number; value: string }> = []
+    const rewriteAttr = (name: string, rewrite: (value: string) => string) => {
+      const attr = attrs.find(attr => attr.name === name)
+      if (!attr || attr.value === undefined)
+        return
+
+      const value = rewrite(attr.value)
+      if (value !== attr.value) {
+        replacements.push({
+          start: attr.valueStart,
+          end: attr.valueEnd,
+          value: this._escapeHtmlAttribute(value),
+        })
+      }
+    }
+
+    if (['script', 'img', 'source', 'video', 'audio', 'track', 'iframe'].includes(tagName))
+      rewriteAttr('src', value => this._rewriteHtmlResourceValue(value, webview))
+
+    if (['img', 'source'].includes(tagName))
+      rewriteAttr('srcset', value => this._rewriteSrcset(value, webview))
+
+    if (tagName === 'link' && this._isResourceLinkTag(attrs))
+      rewriteAttr('href', value => this._rewriteHtmlResourceValue(value, webview))
+
+    rewriteAttr('style', value => this._rewriteCssUrls(value, webview))
+
+    return this._applyHtmlAttributeReplacements(tag, replacements)
+  }
+
+  private _findHtmlTagEnd(html: string, start: number) {
+    let quote = ''
+    for (let index = start; index < html.length; index++) {
+      const char = html[index]
+      if (quote) {
+        if (char === quote)
+          quote = ''
+        continue
+      }
+
+      if (char === '"' || char === '\'') {
+        quote = char
+        continue
+      }
+
+      if (char === '>')
+        return index
+    }
+
+    return -1
+  }
+
+  private _getHtmlTagName(tag: string) {
+    return tag.match(/^<\s*\/?\s*([a-z0-9:-]+)/i)?.[1].toLowerCase()
+  }
+
+  private _parseHtmlAttributes(tag: string) {
+    const attrs: ParsedHtmlAttribute[] = []
+    const tagOpen = tag.match(/^<\s*\/?\s*[^\s/>]+/)
+    if (!tagOpen)
+      return attrs
+
+    let index = tagOpen[0].length
+    while (index < tag.length) {
+      while (/\s/.test(tag[index]))
+        index++
+
+      if (!tag[index] || tag[index] === '/' || tag[index] === '>')
+        break
+
+      const nameStart = index
+      while (tag[index] && !/[\s=/>]/.test(tag[index]))
+        index++
+
+      const name = tag.slice(nameStart, index).toLowerCase()
+      while (/\s/.test(tag[index]))
+        index++
+
+      if (tag[index] !== '=') {
+        attrs.push({ name, valueStart: index, valueEnd: index })
+        continue
+      }
+
+      index++
+      while (/\s/.test(tag[index]))
+        index++
+
+      let valueStart = index
+      let valueEnd = index
+      if (tag[index] === '"' || tag[index] === '\'') {
+        const quote = tag[index]
+        valueStart = ++index
+        while (tag[index] && tag[index] !== quote)
+          index++
+        valueEnd = index
+        if (tag[index] === quote)
+          index++
+      }
+      else {
+        valueStart = index
+        while (tag[index] && !/[\s>]/.test(tag[index]))
+          index++
+        valueEnd = index
+      }
+
+      attrs.push({
+        name,
+        value: tag.slice(valueStart, valueEnd),
+        valueStart,
+        valueEnd,
+      })
+    }
+
+    return attrs
+  }
+
+  private _applyHtmlAttributeReplacements(tag: string, replacements: Array<{ start: number; end: number; value: string }>) {
+    return replacements
+      .sort((a, b) => b.start - a.start)
+      .reduce((rewritten, replacement) => {
+        return `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`
+      }, tag)
+  }
+
+  private _rewriteHtmlResourceValue(value: string, webview: vscode.Webview) {
+    const leadingWhitespace = value.match(/^\s*/)?.[0] || ''
+    const trailingWhitespace = value.match(/\s*$/)?.[0] || ''
+    const uri = value.trim()
+
+    if (!this._shouldRewriteLocalResource(uri))
+      return value
+
+    return `${leadingWhitespace}${webview.asWebviewUri(this._getMediaUri(uri)).toString()}${trailingWhitespace}`
+  }
+
+  private _rewriteSrcset(value: string, webview: vscode.Webview) {
+    let output = ''
+    let index = 0
+
+    while (index < value.length) {
+      const candidateStart = index
+      while (/\s/.test(value[index]))
+        index++
+
+      const urlStart = index
+      const isDataUri = value.slice(index, index + 5).toLowerCase() === 'data:'
+      while (
+        value[index]
+        && (isDataUri ? !/\s/.test(value[index]) : !/[\s,]/.test(value[index]))
+      )
+        index++
+      const urlEnd = index
+
+      while (value[index] && value[index] !== ',')
+        index++
+
+      const candidateEnd = index
+      const url = value.slice(urlStart, urlEnd)
+      output += value.slice(candidateStart, urlStart)
+      output += this._rewriteHtmlResourceValue(url, webview)
+      output += value.slice(urlEnd, candidateEnd)
+
+      if (value[index] === ',') {
+        output += ','
+        index++
+      }
+    }
+
+    return output
+  }
+
+  private _rewriteCssUrls(css: string, webview: vscode.Webview) {
+    return css.replace(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^'")]*?))\s*\)/gi, (match, doubleQuoted, singleQuoted, unquoted) => {
+      const uri = (doubleQuoted ?? singleQuoted ?? unquoted ?? '').trim()
+      if (!this._shouldRewriteLocalResource(uri))
+        return match
+
+      return `url("${this._escapeCssString(webview.asWebviewUri(this._getMediaUri(uri)).toString())}")`
+    })
+  }
+
+  private _shouldRewriteLocalResource(uri: string) {
+    return Boolean(
+      uri
+      && !uri.startsWith('#')
+      && !uri.startsWith('?')
+      && !uri.startsWith('//')
+      && !/^[a-z][a-z0-9+.-]*:/i.test(uri),
+    )
+  }
+
+  private _isResourceLinkTag(attrs: ParsedHtmlAttribute[]) {
+    const rel = attrs.find(attr => attr.name === 'rel')?.value
     if (!rel)
       return false
 
@@ -626,6 +881,14 @@ ${html}
       .replace(/"/g, '&quot;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
+  }
+
+  private _escapeCssString(value: string) {
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\a ')
+      .replace(/\r/g, '\\d ')
   }
 
   private _serializeForInlineScript(value: unknown) {

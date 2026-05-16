@@ -2,7 +2,7 @@
   "name": "@vscode-use/createwebview",
   "version": "0.1.0",
   "packageManager": "pnpm@10.33.4",
-  "description": "",
+  "description": "Small helper for creating VS Code webview panels with CSP and resource handling",
   "author": "Simon He",
   "license": "MIT",
   "funding": "https://github.com/sponsors/Simon-He95",
@@ -12,7 +12,12 @@
     "url": "git+https://github.com/vscode-use/createwebview.git"
   },
   "bugs": "https://github.com/vscode-use/createwebview/issues",
-  "keywords": [],
+  "keywords": [
+    "vscode",
+    "webview",
+    "vscode-extension",
+    "csp"
+  ],
   "sideEffects": false,
   "exports": {
     ".": {
@@ -47,7 +52,8 @@
     "format": "prettier --write --cache .",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx,.md,.json --max-warnings 0 --cache",
     "lint:fix": "pnpm run lint --fix",
-    "prepublishOnly": "pnpm build",
+    "pack:check": "pnpm build && npm pack --dry-run",
+    "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "release": "bumpp && npm publish",
     "start": "esno src/index.ts",
     "test": "vitest run",

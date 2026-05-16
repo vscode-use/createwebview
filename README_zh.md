@@ -67,21 +67,24 @@ function activate(context: vscode.ExtensionContext) {
 - provider.destroy ***销毁关闭 webview***
 - provider.destory ***destroy 的旧拼写别名***
 - provider.deferScript ***在默认脚本之后注入可信内联 JavaScript 源码；外部脚本请使用 scripts 或 deferScriptUri。***
-- provider.deferScriptUri ***从 media 目录加载延迟脚本***
+- provider.deferScriptUri ***延迟脚本 URI 的旧追加别名***
+- provider.setDeferredScriptUris ***替换延迟脚本 URI***
+- provider.addDeferredScriptUris ***追加延迟脚本 URI***
+- provider.clearDeferredScriptUris ***清空延迟脚本 URI***
 - provider.setProps ***设置可在延迟脚本中通过 window.__WEBVIEW_PROPS__ 读取的参数***
 - provider.postMessage ***向js层发送消息***
 
 ## Feature
 
-本地 scripts 和 styles 都会从扩展的 `media` 目录解析。webview 默认会注入 CSP，所以远程 script/style 来源需要通过 `allowedScriptSources` 和 `allowedStyleSources` 显式声明，或者传入自定义 `csp`。通过 `scripts` 和 `styles` 传入的远程资源会在渲染前校验；HTML 文件中已有的远程资源不会预校验，会由注入的 CSP 控制。字体和图片来源默认允许 VS Code webview 资源、`https:` 和 `data:`；额外来源可以通过 `allowedImageSources`、`allowedFontSources`、`allowedConnectSources`、`allowedMediaSources`、`allowedFrameSources`、`allowedManifestSources`、`allowedWorkerSources` 和 `allowedPrefetchSources` 添加。
+本地 scripts 和 styles 默认都会从扩展的 `media` 目录解析。资源放在其他扩展相对目录时可以设置 `mediaRoot`，需要直接控制 VS Code 资源根时可以设置 `localResourceRoots`。webview 默认会注入 CSP，所以远程 script/style 来源需要通过 `allowedScriptSources` 和 `allowedStyleSources` 显式声明，或者传入自定义 `csp`。通过 `scripts` 和 `styles` 传入的远程资源会在渲染前校验；HTML 文件中已有的远程资源不会预校验，会由注入的 CSP 控制。字体和图片来源默认允许 VS Code webview 资源、`https:` 和 `data:`；设置 `strictCsp: true` 后只允许 VS Code webview 资源以及显式配置的 `allowedImageSources` 和 `allowedFontSources`。额外来源可以通过 `allowedImageSources`、`allowedFontSources`、`allowedConnectSources`、`allowedMediaSources`、`allowedFrameSources`、`allowedManifestSources`、`allowedWorkerSources` 和 `allowedPrefetchSources` 添加。
 
 `allowedScriptSources` 和 `allowedStyleSources` 推荐填写 `https:`、`https://cdn.example.com` 这样的 origin、`https://*.example.com` 这样的通配 origin，或具体 URL/path。更复杂的 CSP source expression 请直接使用自定义 `csp`。
 
 `scripts` 选项只接收脚本路径或 URL。内联 JavaScript 请使用 `deferScript`。
 
-`createWithHTMLUrl` 只会重写 `script`、`img`、`source`、`video`、`audio`、`track`、`iframe` 上的本地 `src`，以及 stylesheet、icon 等资源型 `link href`；这些属性必须使用双引号，且路径以 `./` 或单个 `/` 开头，例如 `src="./app.js"`。`a href`、`base href`、canonical link 等普通链接不会被重写。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL、`src="app.js"` 这样的裸文件名、单引号属性、`srcset` 和 CSS `url(...)` 不会被重写。
+`createWithHTMLUrl` 会重写 `script`、`img`、`source`、`video`、`audio`、`track`、`iframe` 上的本地 `src`，以及 stylesheet、icon 等资源型 `link href`。属性可以使用双引号、单引号或不加引号；路径可以以 `./`、单个 `/` 开头，也可以使用 `src="app.js"` 这样的裸相对文件名。它也会重写 `img` 和 `source` 上的本地 `srcset` 项，以及 inline `style` 属性和 `<style>` 标签里的本地 CSS `url(...)`。`a href`、`base href`、canonical link 等普通链接不会被重写。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL 和外部 URL 不会被重写。通过 `link` 加载的 CSS 文件不会被解析。
 
-传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会作用于 `create(html)` 和 `createWithHTMLUrl(htmlUrl)` 渲染出的最终 HTML，所以内联 `<script>`、内联 `<style>` 和 style attributes 默认会被阻止，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts` 或 `deferScriptUri` 引入，或者通过 `csp` 明确放开。
+传给 `createWithHTMLUrl` 的 HTML 文件不能包含自己的 CSP meta 标签，因为运行时会注入 CSP。默认 CSP 会作用于 `create(html)` 和 `createWithHTMLUrl(htmlUrl)` 渲染出的最终 HTML，所以内联 `<script>`、内联 `<style>` 和 style attributes 默认会被阻止，除非你传入自定义 `csp`。请把脚本放到 `media` 并通过 `scripts`、`setDeferredScriptUris` 或 `addDeferredScriptUris` 引入，或者通过 `csp` 明确放开。
 
 如果 HTML 文件已经包含 CSP meta 标签，`createWithHTMLUrl` 默认会拒绝渲染。设置 `existingCsp: 'replace'` 可以移除已有标签并注入 createwebview 的运行时 CSP。
 
@@ -92,7 +95,7 @@ script-src ${webview.cspSource} 'nonce-${nonce}';
 style-src ${webview.cspSource};
 ```
 
-`deferScriptUri` 会把 `media` 下浏览器可直接执行的 `.js` 文件作为外部脚本注入。TypeScript 需要先编译成 JavaScript。渲染前先调用 `setProps`，脚本里通过 `window.__WEBVIEW_PROPS__` 读取参数。
+`setDeferredScriptUris` 和 `addDeferredScriptUris` 会把 `media` 下浏览器可直接执行的 `.js` 文件作为外部脚本注入。TypeScript 需要先编译成 JavaScript。渲染前先调用 `setProps`，脚本里通过 `window.__WEBVIEW_PROPS__` 读取参数。
 
 运行时代码默认不会把 VS Code API 暴露到 `window`。可信的 webview 脚本可以直接调用 `acquireVsCodeApi()`。如果需要旧的全局 API，可以设置 `exposeVsCodeApi: true` 得到 `window.vscode`，也可以传字符串，例如 `exposeVsCodeApi: 'editorApi'`。启用 `exposeVsCodeApi` 后，业务脚本应使用 `window.vscode` 或配置的名称，不要再重复调用 `acquireVsCodeApi()`。
 
@@ -111,6 +114,14 @@ const App = {
 new Vue(App).$mount('#app')
 ```
 
+## 安全模型
+
+`create(html)` 只接受可信 HTML。不要把未清洗的用户输入、workspace 文件内容、文件路径、设置或外部 API 数据直接拼进 HTML 字符串；动态内容需要先转义或清洗。
+
+默认 CSP 从 `default-src 'none'` 开始，运行时内联脚本使用 nonce，本地资源默认通过 `localResourceRoots` 限制在扩展的 `media` 目录，除非你配置了其他 root。远程 scripts 和 styles 必须显式加入 allowlist。为了兼容性，图片和字体默认允许 `https:` 和 `data:`；需要更严格策略时使用 `strictCsp: true`。
+
+除非显式开启 `exposeVsCodeApi`，运行时不会把 VS Code API 暴露到全局。
+
 ## 从 0.0.x 迁移
 
 这个版本包含破坏性行为变化，发布时应该使用 `0.1.0`。
@@ -118,7 +129,7 @@ new Vue(App).$mount('#app')
 - `retainContextWhenHidden` 现在默认是 `false`。
 - 远程 scripts 和 styles 必须通过 `allowedScriptSources`、`allowedStyleSources` 显式允许，除非传入自定义 `csp`。
 - `scripts` 只接受路径和 URL。内联 JavaScript 请使用 `deferScript`。
-- `deferScriptUri` 现在会从 `media` 注入外部脚本，不再读取文件并内联。
+- `deferScriptUri` 现在会从 `media` 注入外部脚本，不再读取文件并内联。新代码建议使用 `setDeferredScriptUris` 或 `addDeferredScriptUris`。
 - props 现在通过 `window.__WEBVIEW_PROPS__` 读取，不再是 `webviewThis`。
 - VS Code API 默认不再暴露为 `window.vscode`。在可信脚本里使用 `acquireVsCodeApi()`，或通过 `exposeVsCodeApi` 显式开启。
 

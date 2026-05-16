@@ -67,21 +67,24 @@ function activate(context: vscode.ExtensionContext) {
 - provider.destroy ***Destroy Close the webview***
 - provider.destory ***Deprecated alias of destroy***
 - provider.deferScript ***Inject trusted inline JavaScript source after the default scripts. External scripts should use scripts or deferScriptUri.***
-- provider.deferScriptUri ***Load a deferred script from the media directory***
+- provider.deferScriptUri ***Deprecated append alias for deferred script URIs***
+- provider.setDeferredScriptUris ***Replace deferred script URIs***
+- provider.addDeferredScriptUris ***Append deferred script URIs***
+- provider.clearDeferredScriptUris ***Clear deferred script URIs***
 - provider.setProps ***Set props available as window.__WEBVIEW_PROPS__ in deferred scripts***
 - provider.postMessage ***Send a message to the js layer***
 
 ## Feature
 
-Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font and image sources allow VS Code webview resources, `https:`, and `data:` by default; add extra sources with `allowedImageSources`, `allowedFontSources`, `allowedConnectSources`, `allowedMediaSources`, `allowedFrameSources`, `allowedManifestSources`, `allowedWorkerSources`, and `allowedPrefetchSources`.
+Local scripts and styles are resolved from the extension `media` directory by default. Use `mediaRoot` when your assets live under a different extension-relative directory, or `localResourceRoots` when you need to pass explicit VS Code resource roots. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font and image sources allow VS Code webview resources, `https:`, and `data:` by default; set `strictCsp: true` to allow only VS Code webview resources plus explicit `allowedImageSources` and `allowedFontSources`. Add extra sources with `allowedImageSources`, `allowedFontSources`, `allowedConnectSources`, `allowedMediaSources`, `allowedFrameSources`, `allowedManifestSources`, `allowedWorkerSources`, and `allowedPrefetchSources`.
 
 For `allowedScriptSources` and `allowedStyleSources`, prefer `https:`, an origin such as `https://cdn.example.com`, a wildcard origin such as `https://*.example.com`, or a specific URL/path. Use a custom `csp` for more complex CSP source expressions.
 
 The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
 
-`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons, only when the attribute uses double quotes and the path starts with `./` or a single `/`, such as `src="./app.js"`. Normal links such as `a href`, `base href`, and canonical links are not rewritten. Protocol-relative URLs like `src="//cdn.example.com/app.js"`, bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.
+`createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons. It supports double-quoted, single-quoted, and unquoted attributes; paths may start with `./`, a single `/`, or use a bare relative filename such as `src="app.js"`. It also rewrites local `srcset` entries on `img` and `source`, plus local CSS `url(...)` references in inline `style` attributes and `<style>` tags. Normal links such as `a href`, `base href`, and canonical links are not rewritten. External URLs and protocol-relative URLs like `src="//cdn.example.com/app.js"` are not rewritten. CSS files loaded through `link` are not parsed.
 
-HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts` or `deferScriptUri`, or explicitly relax the policy with `csp`.
+HTML files passed to `createWithHTMLUrl` must not include their own CSP meta tag because the runtime injects one. The default CSP applies to the final HTML rendered by both `create(html)` and `createWithHTMLUrl(htmlUrl)`, so inline `<script>`, inline `<style>`, and style attributes are blocked unless you provide a custom `csp`. Put scripts in `media` and load them with `scripts`, `setDeferredScriptUris`, or `addDeferredScriptUris`, or explicitly relax the policy with `csp`.
 
 If an HTML file already includes a CSP meta tag, `createWithHTMLUrl` rejects it by default. Set `existingCsp: 'replace'` to remove the existing tag and inject createwebview's runtime CSP.
 
@@ -92,7 +95,7 @@ script-src ${webview.cspSource} 'nonce-${nonce}';
 style-src ${webview.cspSource};
 ```
 
-`deferScriptUri` injects a browser-ready `.js` file from `media` as an external script. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
+`setDeferredScriptUris` and `addDeferredScriptUris` inject browser-ready `.js` files from `media` as external scripts. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
 
 The runtime does not expose the VS Code API on `window` by default. Trusted webview scripts can call `acquireVsCodeApi()` directly. If you need the legacy global API, set `exposeVsCodeApi: true` for `window.vscode`, or pass a string such as `exposeVsCodeApi: 'editorApi'`. When `exposeVsCodeApi` is enabled, business scripts should use `window.vscode` or the configured name instead of calling `acquireVsCodeApi()` again.
 
@@ -111,6 +114,14 @@ const App = {
 new Vue(App).$mount('#app')
 ```
 
+## Security model
+
+`create(html)` accepts trusted HTML only. Do not pass unsanitized user input, workspace file contents, file paths, settings, or external API data into the HTML string. Escape or sanitize dynamic content before rendering it.
+
+The default CSP starts from `default-src 'none'`, injects nonce-protected runtime scripts, and limits local resources to the extension `media` directory through `localResourceRoots` unless you configure a different root. Remote scripts and styles must be allowlisted. Images and fonts permit `https:` and `data:` by default for compatibility; use `strictCsp: true` when you want those sources to be explicit.
+
+The VS Code API is not exposed globally unless `exposeVsCodeApi` is enabled.
+
 ## Migration from 0.0.x
 
 This release includes breaking behavior changes and should be published as `0.1.0`.
@@ -118,7 +129,7 @@ This release includes breaking behavior changes and should be published as `0.1.
 - `retainContextWhenHidden` now defaults to `false`.
 - Remote scripts and styles must be allowlisted with `allowedScriptSources` and `allowedStyleSources`, unless you provide a custom `csp`.
 - `scripts` accepts paths and URLs only. Use `deferScript` for inline JavaScript.
-- `deferScriptUri` now injects an external script from `media` instead of reading and inlining a file.
+- `deferScriptUri` now injects an external script from `media` instead of reading and inlining a file. Prefer `setDeferredScriptUris` or `addDeferredScriptUris` for new code.
 - Props are available as `window.__WEBVIEW_PROPS__` instead of `webviewThis`.
 - The VS Code API is no longer exposed as `window.vscode` by default. Use `acquireVsCodeApi()` inside trusted scripts, or opt in with `exposeVsCodeApi`.
 
