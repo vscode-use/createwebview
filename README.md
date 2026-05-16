@@ -73,7 +73,7 @@ function activate(context: vscode.ExtensionContext) {
 
 ## Feature
 
-Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font sources allow VS Code webview resources, `https:`, and `data:` by default; add extra font/connect sources with `allowedFontSources` and `allowedConnectSources`.
+Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font and image sources allow VS Code webview resources, `https:`, and `data:` by default; add extra sources with `allowedImageSources`, `allowedFontSources`, `allowedConnectSources`, `allowedMediaSources`, `allowedFrameSources`, `allowedManifestSources`, `allowedWorkerSources`, and `allowedPrefetchSources`.
 
 The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
 

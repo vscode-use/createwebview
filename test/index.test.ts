@@ -238,6 +238,11 @@ describe('CreateWebview', () => {
       allowedStyleSources: ['https://cdn.example.com'],
       allowedFontSources: ['https://fonts.example.com'],
       allowedConnectSources: ['https://api.example.com'],
+      allowedMediaSources: ['https://media.example.com'],
+      allowedFrameSources: ['https://frame.example.com'],
+      allowedManifestSources: ['https://manifest.example.com'],
+      allowedWorkerSources: ['https://worker.example.com'],
+      allowedPrefetchSources: ['https://prefetch.example.com'],
     })
 
     const html = await renderHtml(provider)
@@ -249,6 +254,11 @@ describe('CreateWebview', () => {
     expect(html).toContain('connect-src vscode-resource: https://api.example.com')
     expect(html).toContain('style-src vscode-resource: https://cdn.example.com')
     expect(html).toContain('script-src \'nonce-')
+    expect(html).toContain('media-src vscode-resource: https://media.example.com')
+    expect(html).toContain('frame-src vscode-resource: https://frame.example.com')
+    expect(html).toContain('manifest-src vscode-resource: https://manifest.example.com')
+    expect(html).toContain('worker-src vscode-resource: https://worker.example.com')
+    expect(html).toContain('prefetch-src vscode-resource: https://prefetch.example.com')
     expect(html).toContain('https://cdn.example.com')
     expect(html).not.toContain('unsafe-inline')
     expect(html).not.toContain('acquireVsCodeApi')
@@ -262,6 +272,11 @@ describe('CreateWebview', () => {
       ['allowedImageSources', 'https://cdn.example.com"bad'],
       ['allowedFontSources', 'https://cdn.example.com<bad>'],
       ['allowedConnectSources', 'https://api.example.com>'],
+      ['allowedMediaSources', 'https://media.example.com bad'],
+      ['allowedFrameSources', 'https://frame.example.com;'],
+      ['allowedManifestSources', 'https://manifest.example.com"bad'],
+      ['allowedWorkerSources', 'https://worker.example.com<bad>'],
+      ['allowedPrefetchSources', 'https://prefetch.example.com>'],
     ]
 
     for (const [optionName, source] of invalidOptions) {
@@ -387,6 +402,48 @@ describe('CreateWebview', () => {
       },
     )
     expect(panel.webview.html).toContain('<div>default</div>')
+  })
+
+  it('registers message handlers before assigning html', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const createPanelView = createPanel()
+    const htmlUrlPanelView = createPanel()
+    const createOrder: string[] = []
+    const htmlUrlOrder: string[] = []
+    let createHtml = ''
+    let htmlUrlHtml = ''
+
+    Object.defineProperty(createPanelView.webview, 'html', {
+      get: () => createHtml,
+      set: (value) => {
+        createOrder.push('html')
+        createHtml = value
+      },
+    })
+    Object.defineProperty(htmlUrlPanelView.webview, 'html', {
+      get: () => htmlUrlHtml,
+      set: (value) => {
+        htmlUrlOrder.push('html')
+        htmlUrlHtml = value
+      },
+    })
+    createPanelView.webview.onDidReceiveMessage = vi.fn(() => {
+      createOrder.push('message')
+    })
+    htmlUrlPanelView.webview.onDidReceiveMessage = vi.fn(() => {
+      htmlUrlOrder.push('message')
+    })
+    vscodeMock.window.createWebviewPanel
+      .mockReturnValueOnce(createPanelView)
+      .mockReturnValueOnce(htmlUrlPanelView)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from('<html><head></head><body></body></html>'))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    await provider.create('<div>inline</div>')
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(createOrder).toEqual(['message', 'html'])
+    expect(htmlUrlOrder).toEqual(['message', 'html'])
   })
 
   it('disposes the previous panel and clears panel state on dispose', async () => {
@@ -696,6 +753,21 @@ describe('CreateWebview', () => {
     await expect(renderHtml(deferredProvider)).rejects.toThrow('Invalid media path: ../secret.js')
   })
 
+  it('rejects media paths with backslash or encoded parent directory segments', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const backslashProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['..\\secret.js'],
+    })
+    const encodedProvider = new CreateWebview(context as any, {
+      title: 'Test',
+      scripts: ['%2e%2e/secret.js'],
+    })
+
+    await expect(renderHtml(backslashProvider)).rejects.toThrow('Invalid media path: ..\\secret.js')
+    await expect(renderHtml(encodedProvider)).rejects.toThrow('Invalid media path: %2e%2e/secret.js')
+  })
+
   it('loads html urls through vscode workspace fs and injects runtime CSP', async () => {
     const { CreateWebview } = await import('../src/index')
     const panel = createPanel()
@@ -763,6 +835,8 @@ describe('CreateWebview', () => {
     const provider = new CreateWebview(context as any, { title: 'Test' })
 
     await expect(provider.createWithHTMLUrl('../outside.html')).rejects.toThrow('Invalid extension file path: ../outside.html')
+    await expect(provider.createWithHTMLUrl('..\\outside.html')).rejects.toThrow('Invalid extension file path: ..\\outside.html')
+    await expect(provider.createWithHTMLUrl('%2e%2e/outside.html')).rejects.toThrow('Invalid extension file path: %2e%2e/outside.html')
     expect(vscodeMock.workspace.fs.readFile).not.toHaveBeenCalled()
     expect(vscodeMock.window.createWebviewPanel).not.toHaveBeenCalled()
   })
@@ -849,6 +923,21 @@ describe('CreateWebview', () => {
     expect(panel.webview.html.indexOf('webview:/extension/media/post.js')).toBeLessThan(panel.webview.html.indexOf('</body>'))
     expect(panel.webview.html.indexOf('window.inline = true')).toBeLessThan(panel.webview.html.indexOf('</body>'))
     expect(panel.webview.html.indexOf('webview:/extension/media/deferred.js')).toBeLessThan(panel.webview.html.indexOf('</body>'))
+  })
+
+  it('does not treat $ sequences in injected body content as replacement tokens', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const panel = createPanel()
+    vscodeMock.window.createWebviewPanel.mockReturnValue(panel)
+    vscodeMock.workspace.fs.readFile.mockResolvedValue(Buffer.from(
+      '<html><head></head><body><div id="app"></div></body></html>',
+    ))
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+
+    provider.deferScript('const value = "$& $1 $$"')
+    await provider.createWithHTMLUrl('./src/webview/index.html')
+
+    expect(panel.webview.html).toContain('const value = "$& $1 $$"')
   })
 
   it('rejects deferred inline scripts that include their own nonce', async () => {

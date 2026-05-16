@@ -73,7 +73,7 @@ function activate(context: vscode.ExtensionContext) {
 
 ## Feature
 
-本地 scripts 和 styles 都会从扩展的 `media` 目录解析。webview 默认会注入 CSP，所以远程 script/style 来源需要通过 `allowedScriptSources` 和 `allowedStyleSources` 显式声明，或者传入自定义 `csp`。通过 `scripts` 和 `styles` 传入的远程资源会在渲染前校验；HTML 文件中已有的远程资源不会预校验，会由注入的 CSP 控制。字体来源默认允许 VS Code webview 资源、`https:` 和 `data:`；额外的字体和网络请求来源可以通过 `allowedFontSources`、`allowedConnectSources` 添加。
+本地 scripts 和 styles 都会从扩展的 `media` 目录解析。webview 默认会注入 CSP，所以远程 script/style 来源需要通过 `allowedScriptSources` 和 `allowedStyleSources` 显式声明，或者传入自定义 `csp`。通过 `scripts` 和 `styles` 传入的远程资源会在渲染前校验；HTML 文件中已有的远程资源不会预校验，会由注入的 CSP 控制。字体和图片来源默认允许 VS Code webview 资源、`https:` 和 `data:`；额外来源可以通过 `allowedImageSources`、`allowedFontSources`、`allowedConnectSources`、`allowedMediaSources`、`allowedFrameSources`、`allowedManifestSources`、`allowedWorkerSources` 和 `allowedPrefetchSources` 添加。
 
 `scripts` 选项只接收脚本路径或 URL。内联 JavaScript 请使用 `deferScript`。
 

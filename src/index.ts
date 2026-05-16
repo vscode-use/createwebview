@@ -15,6 +15,11 @@ export interface Options {
   allowedImageSources?: string[]
   allowedFontSources?: string[]
   allowedConnectSources?: string[]
+  allowedMediaSources?: string[]
+  allowedFrameSources?: string[]
+  allowedManifestSources?: string[]
+  allowedWorkerSources?: string[]
+  allowedPrefetchSources?: string[]
   csp?: string
   html?: string
   exposeVsCodeApi?: boolean | string
@@ -39,6 +44,11 @@ export class CreateWebview {
   private allowedImageSources: string[]
   private allowedFontSources: string[]
   private allowedConnectSources: string[]
+  private allowedMediaSources: string[]
+  private allowedFrameSources: string[]
+  private allowedManifestSources: string[]
+  private allowedWorkerSources: string[]
+  private allowedPrefetchSources: string[]
   private csp?: string
   private onMessage?: (data: any) => void
   private exposeVsCodeApi?: string
@@ -64,6 +74,11 @@ export class CreateWebview {
     this.allowedImageSources = options.allowedImageSources || []
     this.allowedFontSources = options.allowedFontSources || []
     this.allowedConnectSources = options.allowedConnectSources || []
+    this.allowedMediaSources = options.allowedMediaSources || []
+    this.allowedFrameSources = options.allowedFrameSources || []
+    this.allowedManifestSources = options.allowedManifestSources || []
+    this.allowedWorkerSources = options.allowedWorkerSources || []
+    this.allowedPrefetchSources = options.allowedPrefetchSources || []
     this.csp = options.csp
     if (!this.csp) {
       this._assertValidCspSourceTokens('allowedScriptSources', this.allowedScriptSources)
@@ -71,6 +86,11 @@ export class CreateWebview {
       this._assertValidCspSourceTokens('allowedImageSources', this.allowedImageSources)
       this._assertValidCspSourceTokens('allowedFontSources', this.allowedFontSources)
       this._assertValidCspSourceTokens('allowedConnectSources', this.allowedConnectSources)
+      this._assertValidCspSourceTokens('allowedMediaSources', this.allowedMediaSources)
+      this._assertValidCspSourceTokens('allowedFrameSources', this.allowedFrameSources)
+      this._assertValidCspSourceTokens('allowedManifestSources', this.allowedManifestSources)
+      this._assertValidCspSourceTokens('allowedWorkerSources', this.allowedWorkerSources)
+      this._assertValidCspSourceTokens('allowedPrefetchSources', this.allowedPrefetchSources)
     }
     this.onMessage = options.onMessage
     if (options.exposeVsCodeApi === true)
@@ -115,16 +135,13 @@ export class CreateWebview {
       return
     }
 
+    this._bindMessageHandler(webviewView, callback)
     webviewView.webview.html = renderedHtml
     this.webviewView?.dispose()
     this.webviewView = webviewView
     webviewView.onDidDispose(() => {
       if (this.webviewView === webviewView)
         this.webviewView = undefined
-    })
-    webviewView.webview.onDidReceiveMessage((data: any) => {
-      callback(data)
-      this.onMessage && this.onMessage(data)
     })
   }
 
@@ -168,6 +185,7 @@ export class CreateWebview {
         this._rewriteHtmlResources(html, webviewView.webview),
         content.head,
       )
+      this._bindMessageHandler(webviewView, callback)
       webviewView.webview.html = this._injectBodyEndContent(renderedHtml, content.bodyEnd)
     }
     catch (error) {
@@ -187,10 +205,6 @@ export class CreateWebview {
     webviewView.onDidDispose(() => {
       if (this.webviewView === webviewView)
         this.webviewView = undefined
-    })
-    webviewView.webview.onDidReceiveMessage((data: any) => {
-      callback(data)
-      this.onMessage && this.onMessage(data)
     })
   }
 
@@ -333,20 +347,36 @@ export class CreateWebview {
     const rawPath = match?.[1] ?? uri
     const query = match?.[2] ?? ''
     const fragment = match?.[3] ?? ''
-    const normalized = rawPath.replace(/^\/+/, '').replace(/^\.\/+/, '')
-    if (normalized.split('/').includes('..'))
-      throw new Error(`Invalid media path: ${uri}`)
+    const normalized = this._normalizeSafePath(rawPath, 'media', uri)
 
     const mediaUri = vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
     return query || fragment ? mediaUri.with({ query, fragment }) : mediaUri
   }
 
   private _getExtensionFileUri(uri: string) {
-    const normalized = uri.replace(/^\/+/, '').replace(/^\.\/+/, '')
-    if (normalized.split('/').includes('..'))
-      throw new Error(`Invalid extension file path: ${uri}`)
+    const normalized = this._normalizeSafePath(uri, 'extension file', uri)
 
     return vscode.Uri.joinPath(this._extensionUri, normalized)
+  }
+
+  private _normalizeSafePath(path: string, kind: string, originalUri: string) {
+    const normalized = path
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/^\.\/+/, '')
+
+    let decoded = ''
+    try {
+      decoded = decodeURIComponent(normalized).replace(/\\/g, '/')
+    }
+    catch {
+      throw new Error(`Invalid ${kind} path: ${originalUri}`)
+    }
+
+    if (decoded.split('/').some(segment => segment.toLowerCase() === '..'))
+      throw new Error(`Invalid ${kind} path: ${originalUri}`)
+
+    return normalized
   }
 
   private _getNonce() {
@@ -369,6 +399,11 @@ export class CreateWebview {
     const imageSources = [webview.cspSource, 'https:', 'data:', ...this.allowedImageSources]
     const fontSources = [webview.cspSource, 'https:', 'data:', ...this.allowedFontSources]
     const connectSources = [webview.cspSource, ...this.allowedConnectSources]
+    const mediaSources = [webview.cspSource, ...this.allowedMediaSources]
+    const frameSources = [webview.cspSource, ...this.allowedFrameSources]
+    const manifestSources = [webview.cspSource, ...this.allowedManifestSources]
+    const workerSources = [webview.cspSource, ...this.allowedWorkerSources]
+    const prefetchSources = [webview.cspSource, ...this.allowedPrefetchSources]
 
     return [
       'default-src \'none\'',
@@ -377,6 +412,11 @@ export class CreateWebview {
       `connect-src ${connectSources.join(' ')}`,
       `style-src ${styleSources.join(' ')}`,
       `script-src ${scriptSources.join(' ')}`,
+      `media-src ${mediaSources.join(' ')}`,
+      `frame-src ${frameSources.join(' ')}`,
+      `manifest-src ${manifestSources.join(' ')}`,
+      `worker-src ${workerSources.join(' ')}`,
+      `prefetch-src ${prefetchSources.join(' ')}`,
     ].join('; ')
   }
 
@@ -392,8 +432,15 @@ export class CreateWebview {
 
   private _injectBodyEndContent(html: string, content: string) {
     return /<\/body>/i.test(html)
-      ? html.replace(/<\/body>/i, `${content}\n</body>`)
+      ? html.replace(/<\/body>/i, () => `${content}\n</body>`)
       : `${html}\n${content}`
+  }
+
+  private _bindMessageHandler(webviewView: vscode.WebviewPanel, callback: (data: any) => void) {
+    webviewView.webview.onDidReceiveMessage((data: any) => {
+      callback(data)
+      this.onMessage?.(data)
+    })
   }
 
   private _hasCspMeta(html: string) {
