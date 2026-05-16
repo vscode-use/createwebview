@@ -878,6 +878,25 @@ describe('CreateWebview', () => {
     expect(panel.webview.html).toContain('src="webview:/extension/media/app.js?entry=main#boot"')
   })
 
+  it('rejects path traversal in html url resource attributes', async () => {
+    const { CreateWebview } = await import('../src/index')
+    const provider = new CreateWebview(context as any, { title: 'Test' })
+    const cases = [
+      ['<html><body><img src="./../secret.png"></body></html>', 'Invalid media path: ./../secret.png'],
+      ['<html><body><script src="/../secret.js"></script></body></html>', 'Invalid media path: /../secret.js'],
+      ['<html><head><link rel="stylesheet" href="./../secret.css"></head><body></body></html>', 'Invalid media path: ./../secret.css'],
+    ]
+
+    for (const [html, error] of cases) {
+      const panel = createPanel()
+      vscodeMock.window.createWebviewPanel.mockReturnValueOnce(panel)
+      vscodeMock.workspace.fs.readFile.mockResolvedValueOnce(Buffer.from(html))
+
+      await expect(provider.createWithHTMLUrl('./src/webview/index.html')).rejects.toThrow(error)
+      expect(panel.dispose).toHaveBeenCalledTimes(1)
+    }
+  })
+
   it('rejects html urls containing parent directory segments', async () => {
     const { CreateWebview } = await import('../src/index')
     const provider = new CreateWebview(context as any, { title: 'Test' })

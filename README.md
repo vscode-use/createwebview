@@ -75,6 +75,8 @@ function activate(context: vscode.ExtensionContext) {
 
 Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Remote entries passed through `scripts` and `styles` are validated before rendering. Remote resources already present in HTML files are governed by the generated CSP. Font and image sources allow VS Code webview resources, `https:`, and `data:` by default; add extra sources with `allowedImageSources`, `allowedFontSources`, `allowedConnectSources`, `allowedMediaSources`, `allowedFrameSources`, `allowedManifestSources`, `allowedWorkerSources`, and `allowedPrefetchSources`.
 
+For `allowedScriptSources` and `allowedStyleSources`, prefer `https:`, an origin such as `https://cdn.example.com`, a wildcard origin such as `https://*.example.com`, or a specific URL/path. Use a custom `csp` for more complex CSP source expressions.
+
 The `scripts` option accepts script paths or URLs only. Use `deferScript` for inline JavaScript.
 
 `createWithHTMLUrl` rewrites local `src` resources on `script`, `img`, `source`, `video`, `audio`, `track`, and `iframe`, plus resource `link href` entries such as stylesheets and icons, only when the attribute uses double quotes and the path starts with `./` or a single `/`, such as `src="./app.js"`. Normal links such as `a href`, `base href`, and canonical links are not rewritten. Protocol-relative URLs like `src="//cdn.example.com/app.js"`, bare filenames like `src="app.js"`, single-quoted attributes, `srcset`, and CSS `url(...)` are not rewritten.

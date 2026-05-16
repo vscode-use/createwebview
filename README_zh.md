@@ -75,6 +75,8 @@ function activate(context: vscode.ExtensionContext) {
 
 本地 scripts 和 styles 都会从扩展的 `media` 目录解析。webview 默认会注入 CSP，所以远程 script/style 来源需要通过 `allowedScriptSources` 和 `allowedStyleSources` 显式声明，或者传入自定义 `csp`。通过 `scripts` 和 `styles` 传入的远程资源会在渲染前校验；HTML 文件中已有的远程资源不会预校验，会由注入的 CSP 控制。字体和图片来源默认允许 VS Code webview 资源、`https:` 和 `data:`；额外来源可以通过 `allowedImageSources`、`allowedFontSources`、`allowedConnectSources`、`allowedMediaSources`、`allowedFrameSources`、`allowedManifestSources`、`allowedWorkerSources` 和 `allowedPrefetchSources` 添加。
 
+`allowedScriptSources` 和 `allowedStyleSources` 推荐填写 `https:`、`https://cdn.example.com` 这样的 origin、`https://*.example.com` 这样的通配 origin，或具体 URL/path。更复杂的 CSP source expression 请直接使用自定义 `csp`。
+
 `scripts` 选项只接收脚本路径或 URL。内联 JavaScript 请使用 `deferScript`。
 
 `createWithHTMLUrl` 只会重写 `script`、`img`、`source`、`video`、`audio`、`track`、`iframe` 上的本地 `src`，以及 stylesheet、icon 等资源型 `link href`；这些属性必须使用双引号，且路径以 `./` 或单个 `/` 开头，例如 `src="./app.js"`。`a href`、`base href`、canonical link 等普通链接不会被重写。`src="//cdn.example.com/app.js"` 这样的 protocol-relative URL、`src="app.js"` 这样的裸文件名、单引号属性、`srcset` 和 CSS `url(...)` 不会被重写。

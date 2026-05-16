@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 
 export interface Options {
@@ -162,7 +161,7 @@ export class CreateWebview {
     if (requestId !== this.createRequestId)
       return
 
-    let html = Buffer.from(bytes).toString('utf8')
+    let html = new TextDecoder('utf-8').decode(bytes)
     const hasExistingCsp = this._hasCspMeta(html)
     if (hasExistingCsp) {
       if (this.existingCsp !== 'replace')
@@ -392,7 +391,10 @@ export class CreateWebview {
   }
 
   private _getNonce() {
-    return randomBytes(16).toString('base64')
+    const bytes = new Uint8Array(16)
+    const webCrypto = (globalThis as typeof globalThis & { crypto: { getRandomValues: (array: Uint8Array) => Uint8Array } }).crypto
+    webCrypto.getRandomValues(bytes)
+    return btoa(String.fromCharCode(...bytes))
   }
 
   private _getCspMeta(webview: vscode.Webview, nonce: string) {
