@@ -73,9 +73,9 @@ function activate(context: vscode.ExtensionContext) {
 
 ## Feature
 
-Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`.
+Local scripts and styles are resolved from the extension `media` directory. Webviews include a default CSP, so remote script/style sources must be listed explicitly with `allowedScriptSources` and `allowedStyleSources`, or replaced by a custom `csp`. Font sources allow VS Code webview resources, `https:`, and `data:` by default; add extra font/connect sources with `allowedFontSources` and `allowedConnectSources`.
 
-`deferScriptUri` can load a `.ts` or `.js` file under `media`. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
+`deferScriptUri` can load a browser-ready `.js` file under `media`. Compile TypeScript before loading it. Call `setProps` before rendering, then read the values from `window.__WEBVIEW_PROPS__`.
 
 ```ts
 const { name, age } = window.__WEBVIEW_PROPS__

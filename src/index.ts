@@ -13,6 +13,8 @@ export interface Options {
   allowedScriptSources?: string[]
   allowedStyleSources?: string[]
   allowedImageSources?: string[]
+  allowedFontSources?: string[]
+  allowedConnectSources?: string[]
   csp?: string
   html?: string
 }
@@ -33,6 +35,8 @@ export class CreateWebview {
   private allowedScriptSources: string[]
   private allowedStyleSources: string[]
   private allowedImageSources: string[]
+  private allowedFontSources: string[]
+  private allowedConnectSources: string[]
   private csp?: string
   private onMessage?: (data: any) => void
   constructor(
@@ -55,6 +59,8 @@ export class CreateWebview {
     this.allowedScriptSources = options.allowedScriptSources || []
     this.allowedStyleSources = options.allowedStyleSources || []
     this.allowedImageSources = options.allowedImageSources || []
+    this.allowedFontSources = options.allowedFontSources || []
+    this.allowedConnectSources = options.allowedConnectSources || []
     this.csp = options.csp
     this.onMessage = options.onMessage
   }
@@ -109,18 +115,14 @@ export class CreateWebview {
       if (this.webviewView === webviewView)
         this.webviewView = undefined
     })
-    const nonce = this._getNonce()
-    const runtime = `${this._getCspMeta(webviewView.webview, nonce)}
-<script nonce="${nonce}">
-  window.vscode = acquireVsCodeApi();
-  window.__WEBVIEW_PROPS__ = ${JSON.stringify(this.props)}
-</script>`
+    const content = await this._getWebviewContent(webviewView.webview)
     webviewView.webview.html = this._injectHeadContent(
       html.replace(/(?:src|href)="([/.][^"]*)"/g, (_, u) => _.replace(u, webviewView.webview.asWebviewUri(
         this._getMediaUri(u),
       ).toString())),
-      runtime,
+      content.head,
     )
+    webviewView.webview.html = this._injectBodyEndContent(webviewView.webview.html, content.bodyEnd)
     webviewView.webview.onDidReceiveMessage((data: any) => {
       callback(data)
       this.onMessage && this.onMessage(data)
@@ -166,6 +168,24 @@ export class CreateWebview {
   }
 
   private async _getHtmlForWebview(webview: vscode.Webview, html: string) {
+    const content = await this._getWebviewContent(webview)
+
+    return `<!DOCTYPE html>
+			<html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          ${content.head}
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${this._title}</title>
+        </head>
+        <body>
+          ${html}
+        </body>
+        ${content.bodyEnd}
+			</html>`
+  }
+
+  private async _getWebviewContent(webview: vscode.Webview) {
     const nonce = this._getNonce()
     const outerUriReg = /^http[s]:\/\//
     const styles = this._styles
@@ -197,9 +217,9 @@ export class CreateWebview {
         : webview.asWebviewUri(
           this._getMediaUri(script),
         )
-      const _script = script.startsWith('<script')
-        ? this._renderScript(script, nonce)
-        : `<script nonce="${nonce}" src="${scriptUri}"></script>`
+      const _script = script.trim().startsWith('<script')
+        ? this._renderInlineScript(script, nonce)
+        : `<script src="${scriptUri.toString()}"></script>`
 
       if (isPre)
         preScripts.push(_script)
@@ -207,36 +227,31 @@ export class CreateWebview {
         postScripts.push(_script)
     })
     const scriptsUri = await Promise.all(this.scriptsPromises).then(scripts =>
-      scripts.map(script => this._renderScript(script, nonce)),
+      scripts.map(script => this._renderInlineScript(script, nonce)),
     )
 
-    return `<!DOCTYPE html>
-			<html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          ${this._getCspMeta(webview, nonce)}
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${this._title}</title>
+    return {
+      head: `${this._getCspMeta(webview, nonce)}
           ${styles}
           <script nonce="${nonce}">
             window.vscode = acquireVsCodeApi();
           </script>
           <script nonce="${nonce}">
-            window.__WEBVIEW_PROPS__ = ${JSON.stringify(this.props)}
+            window.__WEBVIEW_PROPS__ = ${this._serializeForInlineScript(this.props)}
           </script>
-          ${preScripts.length ? preScripts.join('\n') : ''}
-        </head>
-        <body>
-          ${html}
-        </body>
-        ${postScripts.join('\n')}
-        ${this._renderScript(this._deferScript, nonce)}
-        ${scriptsUri.join('\n')}
-			</html>`
+          ${preScripts.length ? preScripts.join('\n') : ''}`,
+      bodyEnd: `${postScripts.join('\n')}
+        ${this._renderInlineScript(this._deferScript, nonce)}
+        ${scriptsUri.join('\n')}`,
+    }
   }
 
   private _getMediaUri(uri: string) {
-    return vscode.Uri.joinPath(this._extensionUri, 'media', uri.replace(/^\.?\//, ''))
+    const normalized = uri.replace(/^\/+/, '').replace(/^\.\//, '')
+    if (normalized.split('/').includes('..'))
+      throw new Error(`Invalid media path: ${uri}`)
+
+    return vscode.Uri.joinPath(this._extensionUri, 'media', normalized)
   }
 
   private _getNonce() {
@@ -257,10 +272,14 @@ export class CreateWebview {
     const scriptSources = [`'nonce-${nonce}'`, webview.cspSource, ...this.allowedScriptSources]
     const styleSources = [webview.cspSource, ...this.allowedStyleSources]
     const imageSources = [webview.cspSource, 'https:', 'data:', ...this.allowedImageSources]
+    const fontSources = [webview.cspSource, 'https:', 'data:', ...this.allowedFontSources]
+    const connectSources = [webview.cspSource, ...this.allowedConnectSources]
 
     return [
       'default-src \'none\'',
       `img-src ${imageSources.join(' ')}`,
+      `font-src ${fontSources.join(' ')}`,
+      `connect-src ${connectSources.join(' ')}`,
       `style-src ${styleSources.join(' ')}`,
       `script-src ${scriptSources.join(' ')}`,
     ].join('; ')
@@ -272,12 +291,30 @@ export class CreateWebview {
       : `${content}\n${html}`
   }
 
-  private _renderScript(script: string, nonce: string) {
+  private _injectBodyEndContent(html: string, content: string) {
+    return /<\/body>/i.test(html)
+      ? html.replace(/<\/body>/i, `${content}\n</body>`)
+      : `${html}\n${content}`
+  }
+
+  private _renderInlineScript(script: string, nonce: string) {
     if (!script)
       return ''
+
+    if (/^<script\b[^>]*\ssrc\s*=/i.test(script.trim()))
+      return script
 
     return script.trim().startsWith('<script')
       ? script.replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)
       : `<script nonce="${nonce}">${script}</script>`
+  }
+
+  private _serializeForInlineScript(value: unknown) {
+    return JSON.stringify(value)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/&/g, '\\u0026')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029')
   }
 }
